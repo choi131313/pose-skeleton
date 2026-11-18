@@ -82,13 +82,14 @@ const limbMats = COLORS.map(c => new THREE.MeshBasicMaterial({ color: rgb(c, 0.6
 const hiddenMat = new THREE.MeshBasicMaterial({ color: 0x444444, transparent: true, opacity: 0.5 });
 
 function buildPerson(p) {
-  p.group = new THREE.Group();
+  p.group = new THREE.Group(); p.skel = new THREE.Group(); p.group.add(p.skel);
   p.jointMeshes = []; p.hitMeshes = []; p.limbMeshes = [];
   for (let j = 0; j < 18; j++) {
-    const m = new THREE.Mesh(sphereGeo, jointMats[j]); m.scale.setScalar(0.022); p.group.add(m); p.jointMeshes.push(m);
+    const m = new THREE.Mesh(sphereGeo, jointMats[j]); m.scale.setScalar(0.022); p.skel.add(m); p.jointMeshes.push(m);
     const h = new THREE.Mesh(sphereGeo, hiddenMat); h.visible = false; h.scale.setScalar(0.06); h.userData = { p, j }; p.group.add(h); p.hitMeshes.push(h);
   }
-  LIMBS.forEach((l, i) => { const m = new THREE.Mesh(cylGeo, limbMats[i]); p.group.add(m); p.limbMeshes.push(m); });
+  LIMBS.forEach((l, i) => { const m = new THREE.Mesh(cylGeo, limbMats[i]); p.skel.add(m); p.limbMeshes.push(m); });
+  buildMannequin(p);
   peopleRoot.add(p.group);
   updatePerson(p);
 }
@@ -115,8 +116,136 @@ function updatePerson(p) {
     m.visible = p.vis[a] > 0 && p.vis[b] > 0;
     m.material = (isOn(p, a) && isOn(p, b)) ? limbMats[i] : hiddenMat;
   });
+  p.skel.visible = shape !== 'mannequin';
+  updateMannequin(p);
 }
-function clearPeople() { state.people.forEach(p => peopleRoot.remove(p.group)); state.people = []; }
+
+// ---------- 마네킹 (같은 18점으로 만든 회색 인형) ----------
+export let shape = 'skeleton'; // 'skeleton' | 'mannequin' | 'both'
+const MAN_BG = new THREE.Color(0xeeeeec), VIEW_BG = new THREE.Color(0x000000), MAN_VIEW_BG = new THREE.Color(0xdcdfe3);
+const manMat = new THREE.MeshStandardMaterial({ color: 0xa9aeb4, roughness: 0.6, metalness: 0.0 });
+const manMatGhost = new THREE.MeshStandardMaterial({ color: 0xa9aeb4, roughness: 0.6, metalness: 0.0, transparent: true, opacity: 0.38, depthWrite: false });
+const hemi = new THREE.HemisphereLight(0xffffff, 0x7d828c, 1.25); scene.add(hemi);
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.9); scene.add(keyLight); scene.add(keyLight.target);
+const rimLight = new THREE.DirectionalLight(0xffffff, 0.55); scene.add(rimLight); scene.add(rimLight.target);
+function aimLights(cam, center) { // 카메라 기준 왼쪽 위 앞에서 비추기 → 어느 각도로 돌려도 비슷한 명암
+  const f = new THREE.Vector3().subVectors(center, cam.position).normalize();
+  const r = new THREE.Vector3().crossVectors(f, new THREE.Vector3(0, 1, 0)); if (r.lengthSq() < 1e-6) r.set(1, 0, 0); r.normalize();
+  const u = new THREE.Vector3().crossVectors(r, f);
+  keyLight.position.copy(center).addScaledVector(f, -3).addScaledVector(r, -1.6).addScaledVector(u, 2.2); keyLight.target.position.copy(center);
+  rimLight.position.copy(center).addScaledVector(f, 2.5).addScaledVector(r, 1.5).addScaledVector(u, 1); rimLight.target.position.copy(center);
+  keyLight.updateMatrixWorld(); keyLight.target.updateMatrixWorld(); rimLight.updateMatrixWorld(); rimLight.target.updateMatrixWorld();
+}
+const J = Object.fromEntries(NAMES.map((n, i) => [n, i]));
+// [a, b, a쪽 반지름, b쪽 반지름]
+const MAN_LIMBS = [['r_shoulder','r_elbow',0.047,0.039],['r_elbow','r_wrist',0.038,0.029],['l_shoulder','l_elbow',0.047,0.039],['l_elbow','l_wrist',0.038,0.029],
+  ['r_hip','r_knee',0.075,0.05],['r_knee','r_ankle',0.049,0.034],['l_hip','l_knee',0.075,0.05],['l_knee','l_ankle',0.049,0.034],
+  ['neck','r_shoulder',0.05,0.05],['neck','l_shoulder',0.05,0.05]];
+const MAN_BALLS = [['r_shoulder',0.053],['l_shoulder',0.053],['r_elbow',0.04],['l_elbow',0.04],['r_wrist',0.03],['l_wrist',0.03],
+  ['r_knee',0.052],['l_knee',0.052],['r_ankle',0.036],['l_ankle',0.036]];
+const ballGeo = new THREE.SphereGeometry(1, 24, 16);
+function buildMannequin(p) {
+  p.man = new THREE.Group(); p.group.add(p.man); p.manGeos = [];
+  const mk = (geo) => { const m = new THREE.Mesh(geo, manMat); p.man.add(m); return m; };
+  p.manLimbs = MAN_LIMBS.map(([a, b, ra, rb]) => { const g = new THREE.CylinderGeometry(rb, ra, 1, 20, 1, true); p.manGeos.push(g); return { a: J[a], b: J[b], m: mk(g) }; });
+  p.manBalls = MAN_BALLS.map(([a, r]) => ({ a: J[a], r, m: mk(ballGeo) }));
+  p.manPart = {}; ['chest','belly','pelvis','neck','head','nose','r_hand','l_hand','r_foot','l_foot','r_hipball','l_hipball'].forEach(k => p.manPart[k] = mk(k === 'neck' ? cylGeo : ballGeo));
+}
+const V = () => new THREE.Vector3();
+const basis = (x, y, z) => new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
+function orient(m, center, x, y, z, sx, sy, sz) { m.position.copy(center); m.quaternion.copy(basis(x, y, z)); m.scale.set(sx, sy, sz); m.visible = true; }
+function frameFrom(xDir, upHint) { // x 방향을 살리고 위쪽에 가깝게 직교 기저
+  const x = xDir.clone(); if (x.lengthSq() < 1e-8) x.set(1, 0, 0); x.normalize();
+  let y = upHint.clone().addScaledVector(x, -upHint.dot(x)); if (y.lengthSq() < 1e-8) y.set(0, 1, 0); y.normalize();
+  const z = V().crossVectors(x, y).normalize(); return { x, y, z };
+}
+function updateMannequin(p) {
+  if (!p.man) return;
+  p.man.visible = shape !== 'skeleton';
+  const mat = shape === 'both' ? manMatGhost : manMat;
+  p.man.children.forEach(m => { m.material = mat; m.visible = false; });
+  const P = (n) => p.pts[J[n]], ok = (...ns) => ns.every(n => p.vis[J[n]] > 0);
+  for (const L of p.manLimbs) {
+    if (!(p.vis[L.a] > 0 && p.vis[L.b] > 0)) continue;
+    const A = p.pts[L.a], B = p.pts[L.b], d = V().subVectors(B, A), len = d.length(); if (len < 1e-5) continue;
+    L.m.position.copy(A).addScaledVector(d, 0.5); L.m.quaternion.setFromUnitVectors(UP, d.normalize()); L.m.scale.set(1, len, 1); L.m.visible = true;
+  }
+  for (const b of p.manBalls) if (p.vis[b.a] > 0) { b.m.position.copy(p.pts[b.a]); b.m.scale.setScalar(b.r); b.m.visible = true; }
+  const M = p.manPart;
+  // 몸통
+  let up = new THREE.Vector3(0, 1, 0), front = new THREE.Vector3(0, 0, 1);
+  if (ok('neck','r_shoulder','l_shoulder')) {
+    const N = P('neck'), sw = P('r_shoulder').distanceTo(P('l_shoulder'));
+    const hips = ok('r_hip','l_hip'), H = hips ? V().addVectors(P('r_hip'), P('l_hip')).multiplyScalar(0.5) : N.clone().add(new THREE.Vector3(0, -0.5, 0));
+    const tl = Math.max(0.2, N.distanceTo(H)); up = V().subVectors(N, H).normalize();
+    const f = frameFrom(V().subVectors(P('l_shoulder'), P('r_shoulder')), up); front = f.z;
+    orient(M.chest, N.clone().addScaledVector(up, -tl * 0.31).addScaledVector(f.z, -0.005), f.x, f.y, f.z, Math.max(0.115, sw * 0.42), tl * 0.37, 0.097);
+    if (hips) {
+      const fh = frameFrom(V().subVectors(P('l_hip'), P('r_hip')), up), hw = P('r_hip').distanceTo(P('l_hip'));
+      const bx = V().addVectors(f.x, fh.x).normalize(), bf = frameFrom(bx, up);
+      orient(M.belly, N.clone().addScaledVector(up, -tl * 0.68), bf.x, bf.y, bf.z, Math.max(0.1, sw * 0.32), tl * 0.24, 0.085);
+      orient(M.pelvis, H.clone().addScaledVector(fh.y, 0.015), fh.x, fh.y, fh.z, Math.max(0.13, hw * 0.5 + 0.07), 0.105, 0.1);
+      front = fh.z;
+    }
+  }
+  ['r','l'].forEach(s => { if (ok(s + '_hip')) { M[s + '_hipball'].position.copy(P(s + '_hip')); M[s + '_hipball'].scale.setScalar(0.073); M[s + '_hipball'].visible = true; } });
+  // 머리 · 목
+  if (ok('nose','neck')) {
+    const nose = P('nose'), N = P('neck'), ears = ok('r_ear','l_ear');
+    const E = ears ? V().addVectors(P('r_ear'), P('l_ear')).multiplyScalar(0.5) : nose.clone().addScaledVector(front, -0.085).addScaledVector(up, 0.02);
+    const hx0 = ears ? V().subVectors(P('l_ear'), P('r_ear')) : (ok('r_shoulder','l_shoulder') ? V().subVectors(P('l_shoulder'), P('r_shoulder')) : new THREE.Vector3(1, 0, 0));
+    let hz = V().subVectors(nose, E); if (hz.lengthSq() < 1e-6) hz.copy(front);
+    const hy0 = V().crossVectors(hz, hx0); const hf = frameFrom(hx0, hy0.lengthSq() > 1e-8 ? hy0 : up);
+    if (hf.z.dot(hz) < 0) { hf.z.negate(); hf.y.negate(); }
+    const C = E.clone().addScaledVector(hf.y, 0.03).addScaledVector(hf.z, 0.005);
+    orient(M.head, C, hf.x, hf.y, hf.z, 0.08, 0.106, 0.094);
+    orient(M.nose, C.clone().addScaledVector(hf.z, 0.092).addScaledVector(hf.y, -0.02), hf.x, hf.y, hf.z, 0.014, 0.02, 0.016);
+    const base = C.clone().addScaledVector(hf.y, -0.07), d = V().subVectors(base, N), len = d.length();
+    if (len > 1e-4) { M.neck.position.copy(N).addScaledVector(d, 0.5); M.neck.quaternion.setFromUnitVectors(UP, d.clone().normalize()); M.neck.scale.set(0.042, len, 0.042); M.neck.visible = true; }
+  }
+  // 손 · 발
+  ['r','l'].forEach(s => {
+    if (ok(s + '_elbow', s + '_wrist')) {
+      const W = P(s + '_wrist'), d = V().subVectors(W, P(s + '_elbow')).normalize();
+      let x = V().crossVectors(d, front); if (x.lengthSq() < 1e-6) x.set(1, 0, 0); const hf = frameFrom(x, d);
+      orient(M[s + '_hand'], W.clone().addScaledVector(d, 0.075), hf.x, hf.y, hf.z, 0.036, 0.07, 0.02);
+    }
+    if (ok(s + '_knee', s + '_ankle')) {
+      const A = P(s + '_ankle'); const fw = front.clone(); fw.y = 0; if (fw.lengthSq() < 1e-6) fw.set(0, 0, 1); fw.normalize();
+      const x = V().crossVectors(new THREE.Vector3(0, 1, 0), fw).normalize();
+      orient(M[s + '_foot'], A.clone().add(new THREE.Vector3(0, -0.04, 0)).addScaledVector(fw, 0.065), x, new THREE.Vector3(0, 1, 0), fw, 0.045, 0.034, 0.125);
+    }
+  });
+}
+const FLOOR_DROP = () => shape === 'skeleton' ? 0.01 : 0.085;
+export function setShape(v) {
+  shape = ['skeleton','mannequin','both'].includes(v) ? v : 'skeleton';
+  scene.background = shape === 'skeleton' ? VIEW_BG : MAN_VIEW_BG;
+  state.people.forEach(updatePerson); const yp = currentYawPitch(); setView(yp.yaw_deg, yp.pitch_deg);
+}
+// 마네킹 사진 만들기 (밝은 배경, 관절·바닥 없이). cam은 이미 위치가 잡힌 카메라
+let xr = null;
+function renderMannequinCanvas(cam, W, H, center) {
+  if (!xr) xr = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  xr.setPixelRatio(1); xr.setSize(W, H, false);
+  const prev = { bg: scene.background, grid: grid.visible, shape };
+  const skel = state.people.map(p => p.skel.visible), man = state.people.map(p => p.man.visible);
+  state.people.forEach(p => { p.skel.visible = false; p.man.visible = true; p.man.children.forEach(m => { if (m.material === manMatGhost) m.material = manMat; }); });
+  grid.visible = false; scene.background = MAN_BG; aimLights(cam, center);
+  xr.render(scene, cam);
+  scene.background = prev.bg; grid.visible = prev.grid;
+  state.people.forEach((p, i) => { p.skel.visible = skel[i]; p.man.visible = man[i]; });
+  if (shape === 'both') state.people.forEach(p => p.man.children.forEach(m => m.material = manMatGhost));
+  aimLights(camera, controls.target);
+  const c = document.createElement('canvas'); c.width = W; c.height = H; c.getContext('2d').drawImage(xr.domElement, 0, 0, W, H); return c;
+}
+function manExtentPoints(p) { // 맞춤 계산용: 마네킹 부품의 바깥 점들
+  const out = []; p.group.updateMatrixWorld(true);
+  p.man.children.forEach(m => { if (!m.visible) return; const b = new THREE.Box3().setFromObject(m);
+    for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) out.push(new THREE.Vector3(x, y, z)); });
+  return out;
+}
+function clearPeople() { state.people.forEach(p => { peopleRoot.remove(p.group); p.manGeos?.forEach(g => g.dispose()); }); state.people = []; }
 function addPerson(pts, vis, img2d=null) {
   const p = { id: ++pid, pts: pts.map(v => v.clone()), orig: pts.map(v => v.clone()), vis: vis.slice(), img2d };
   buildPerson(p); state.people.push(p); return p;
@@ -126,6 +255,7 @@ function addPerson(pts, vis, img2d=null) {
 function bounds() {
   const box = new THREE.Box3();
   state.people.forEach(p => p.pts.forEach((v, j) => { if (p.vis[j] > 0) box.expandByPoint(v); }));
+  if (shape !== 'skeleton') state.people.forEach(p => { const was = p.man.visible; p.man.visible = true; manExtentPoints(p).forEach(v => box.expandByPoint(v)); p.man.visible = was; });
   if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(1,1.8,0.5));
   return box;
 }
@@ -136,9 +266,10 @@ export function setView(yawDeg = 0, pitchDeg = 0) {
   controls.target.copy(c);
   camera.position.set(c.x + dist*Math.sin(y)*Math.cos(pt), c.y + dist*Math.sin(pt), c.z + dist*Math.cos(y)*Math.cos(pt));
   camera.up.set(0,1,0); camera.lookAt(c); controls.update();
-  grid.position.y = box.min.y - 0.01; grid.position.x = c.x; grid.position.z = c.z;
+  placeGrid(box);
   dirty();
 }
+function placeGrid(box = bounds()) { const c = box.getCenter(new THREE.Vector3()); grid.position.set(c.x, box.min.y - FLOOR_DROP(), c.z); dirty(); }
 function currentYawPitch() {
   const d = new THREE.Vector3().subVectors(camera.position, controls.target).normalize();
   return { yaw_deg: +THREE.MathUtils.radToDeg(Math.atan2(d.x, d.z)).toFixed(1), pitch_deg: +THREE.MathUtils.radToDeg(Math.asin(Math.max(-1, Math.min(1, d.y)))).toFixed(1) };
@@ -215,13 +346,15 @@ function updateFrameAndPreview() {
   $('frameLabel').textContent = `${f.W} × ${f.H}`;
   const pc = $('outPreview'); const s = Math.min(1, 300 / Math.max(f.W, f.H));
   pc.width = Math.round(f.W*s); pc.height = Math.round(f.H*s);
-  const ctx = pc.getContext('2d'); ctx.save(); ctx.scale(s, s);
+  const ctx = pc.getContext('2d');
+  if (shape !== 'skeleton') { ctx.drawImage(renderCurrent(pc.width, pc.height, f.W, f.H), 0, 0); return; }
+  ctx.save(); ctx.scale(s, s);
   drawOpenPose(ctx, f.W, f.H, projectPeople(f.W, f.H), +$('thick').value); ctx.restore();
 }
 function loop() {
   requestAnimationFrame(loop);
   resize(); controls.update();
-  if (needs) { needs = false; renderer.render(scene, camera); updateFrameAndPreview(); }
+  if (needs) { needs = false; if (shape !== 'skeleton') aimLights(camera, controls.target); renderer.render(scene, camera); updateFrameAndPreview(); }
 }
 
 // ---------- 저장 ----------
@@ -230,11 +363,19 @@ function download(blob, name) {
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
 const stamp = () => new Date().toISOString().slice(0,19).replace(/[-:T]/g, '');
-export function renderPng() {
-  const [W, H] = exportSize(); const c = document.createElement('canvas'); c.width = W; c.height = H;
-  drawOpenPose(c.getContext('2d'), W, H, projectPeople(W, H), +$('thick').value); return c;
+// 지금 시점 그대로 (점선 상자 범위) — outW×outH 캔버스에, 좌표는 W×H 기준
+function renderCurrent(outW, outH, W = outW, H = outH) {
+  const f = frameRect(), cam = camera.clone();
+  cam.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(FOV / 2)) * f.h / f.vh)); cam.aspect = W / H; cam.updateProjectionMatrix();
+  const c = shape === 'skeleton' ? null : renderMannequinCanvas(cam, outW, outH, controls.target);
+  const out = c || Object.assign(document.createElement('canvas'), { width: outW, height: outH });
+  if (shape !== 'mannequin') { const ctx = out.getContext('2d'); ctx.save(); ctx.scale(outW / W, outH / H);
+    drawOpenPose(ctx, W, H, projectPeople(W, H), +$('thick').value, shape === 'skeleton'); ctx.restore(); }
+  return out;
 }
-$('savePng').onclick = () => renderPng().toBlob(b => download(b, `pose_${stamp()}.png`), 'image/png');
+export function renderPng() { const [W, H] = exportSize(); return renderCurrent(W, H); }
+const prefix = () => ({ skeleton: 'pose', mannequin: 'mannequin', both: 'pose_mannequin' })[shape];
+$('savePng').onclick = () => renderPng().toBlob(b => download(b, `${prefix()}_${stamp()}.png`), 'image/png');
 
 export function buildJson() {
   const [W, H] = exportSize(); const proj = projectPeople(W, H);
@@ -267,7 +408,7 @@ export const ANGLES = [
   { key: 'top', name: '바로 위', yaw: 0, pitch: 89, on: false },
 ];
 // 사람 좌표 → (yaw, pitch) 카메라 기준 정규화 2D (원근 투영)
-function projectAngle(peoplePts, yawDeg, pitchDeg) {
+function angleCam(peoplePts, yawDeg, pitchDeg) {
   const all = peoplePts.flat().filter(Boolean);
   const box = new THREE.Box3().setFromPoints(all.length ? all : [new THREE.Vector3()]);
   const c = box.getCenter(new THREE.Vector3()), r = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 0.3);
@@ -275,7 +416,18 @@ function projectAngle(peoplePts, yawDeg, pitchDeg) {
   const y = THREE.MathUtils.degToRad(yawDeg), p = THREE.MathUtils.degToRad(Math.max(-89.9, Math.min(89.9, pitchDeg)));
   const pos = new THREE.Vector3(c.x + dist*Math.sin(y)*Math.cos(p), c.y + dist*Math.sin(p), c.z + dist*Math.cos(y)*Math.cos(p));
   const f = c.clone().sub(pos).normalize(), rt = new THREE.Vector3().crossVectors(f, new THREE.Vector3(0,1,0)).normalize(), up = new THREE.Vector3().crossVectors(rt, f);
-  return peoplePts.map(pts => pts.map(v => { if (!v) return null; const d = v.clone().sub(pos); const z = d.dot(f); if (z <= 1e-3) return null; return [d.dot(rt)/z, -d.dot(up)/z]; }));
+  return { c, pos, f, rt, up };
+}
+function projectWith(k, peoplePts) {
+  return peoplePts.map(pts => pts.map(v => { if (!v) return null; const d = v.clone().sub(k.pos); const z = d.dot(k.f); if (z <= 1e-3) return null; return [d.dot(k.rt)/z, -d.dot(k.up)/z]; }));
+}
+function projectAngle(peoplePts, yawDeg, pitchDeg) { return projectWith(angleCam(peoplePts, yawDeg, pitchDeg), peoplePts); }
+// projectWith + fitScale과 똑같이 찍히는 three.js 카메라 (마네킹 렌더용)
+function fittedCamera(k, fit, s, W, H) {
+  const cam = new THREE.PerspectiveCamera(THREE.MathUtils.radToDeg(2 * Math.atan((H / 2) / s)), W / H, 0.01, 100);
+  cam.position.copy(k.pos); cam.up.set(0, 1, 0); cam.lookAt(k.pos.clone().add(k.f)); cam.updateMatrixWorld(); cam.updateProjectionMatrix();
+  cam.projectionMatrix.elements[8] = fit.cx * 2 * s / W; cam.projectionMatrix.elements[9] = -fit.cy * 2 * s / H;
+  cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert(); return cam;
 }
 function fitScale(proj, W, H, margin) {
   const xs = [], ys = []; proj.flat().forEach(q => { if (q) { xs.push(q[0]); ys.push(q[1]); } });
@@ -283,24 +435,32 @@ function fitScale(proj, W, H, margin) {
   const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
   return { s: Math.min(W*(1-2*margin)/Math.max(x1-x0,1e-6), H*(1-2*margin)/Math.max(y1-y0,1e-6)), cx: (x0+x1)/2, cy: (y0+y1)/2 };
 }
-export function renderAngles(list, W, H, thickness = 1, margin = 0.08) {
+export function renderAngles(list, W, H, thickness = 1, margin = 0.08, mode = shape) {
   const peoplePts = state.people.map(p => p.pts.map((v, j) => isOn(p, j) ? v : null));
-  const projs = list.map(a => projectAngle(peoplePts, a.yaw, a.pitch));
+  const withMan = mode !== 'skeleton';
+  const extra = withMan ? state.people.flatMap(p => manExtentPoints(p)) : [];
+  const fitPts = withMan ? [...peoplePts, extra] : peoplePts; // 맞춤은 마네킹 바깥까지 포함
+  const cams = list.map(a => angleCam(peoplePts, a.yaw, a.pitch));
+  const projs = cams.map(k => projectWith(k, fitPts));
   const fits = projs.map(pr => fitScale(pr, W, H, margin));
   const s = Math.min(...fits.map(f => f.s)); // 모든 각도에서 같은 크기
   return projs.map((pr, i) => {
-    const c = document.createElement('canvas'); c.width = W; c.height = H;
-    const pts2 = pr.map(pts => pts.map(q => q ? [W/2 + (q[0]-fits[i].cx)*s, H/2 + (q[1]-fits[i].cy)*s] : null));
-    drawOpenPose(c.getContext('2d'), W, H, pts2, thickness); return { angle: list[i], canvas: c, points: pts2 };
+    const pts2 = pr.slice(0, peoplePts.length).map(pts => pts.map(q => q ? [W/2 + (q[0]-fits[i].cx)*s, H/2 + (q[1]-fits[i].cy)*s] : null));
+    let c;
+    if (withMan) { const prev = shape; shape = 'mannequin'; c = renderMannequinCanvas(fittedCamera(cams[i], fits[i], s, W, H), W, H, cams[i].c); shape = prev; }
+    else { c = document.createElement('canvas'); c.width = W; c.height = H; }
+    if (mode !== 'mannequin') drawOpenPose(c.getContext('2d'), W, H, pts2, thickness, mode === 'skeleton');
+    return { angle: list[i], canvas: c, points: pts2 };
   });
 }
 export function contactSheet(results, W, H) {
   const n = results.length, cols = Math.min(n, n <= 4 ? n : Math.ceil(Math.sqrt(n * 1.5)));
   const rows = Math.ceil(n / cols), tile = Math.min(1, 360 / Math.max(W, H)), tw = Math.round(W*tile), th = Math.round(H*tile), gap = 6, lab = 22;
   const c = document.createElement('canvas'); c.width = cols*tw + (cols+1)*gap; c.height = rows*(th+lab) + (rows+1)*gap;
-  const ctx = c.getContext('2d'); ctx.fillStyle = '#222'; ctx.fillRect(0, 0, c.width, c.height);
+  const light = shape !== 'skeleton';
+  const ctx = c.getContext('2d'); ctx.fillStyle = light ? '#d6d6d3' : '#222'; ctx.fillRect(0, 0, c.width, c.height);
   results.forEach((r, i) => { const x = gap + (i%cols)*(tw+gap), y = gap + Math.floor(i/cols)*(th+lab+gap);
-    ctx.fillStyle = '#ddd'; ctx.font = '14px sans-serif'; ctx.fillText(`${r.angle.name}  (yaw ${r.angle.yaw}°, pitch ${r.angle.pitch}°)`, x+2, y+15);
+    ctx.fillStyle = light ? '#333' : '#ddd'; ctx.font = '14px sans-serif'; ctx.fillText(`${r.angle.name}  (yaw ${r.angle.yaw}°, pitch ${r.angle.pitch}°)`, x+2, y+15);
     ctx.drawImage(r.canvas, x, y+lab, tw, th); });
   return c;
 }
@@ -334,13 +494,14 @@ export async function multiExport(download_ = true) {
   const [W, H] = exportSize(); const res = renderAngles(list, W, H, +$('thick').value); const st = stamp();
   const out = { zip: null, sheet: null };
   if ($('multiZip').checked) {
-    const files = []; for (const [i, r] of res.entries()) files.push({ name: `pose_${String(i+1).padStart(2,'0')}_${r.angle.key}_yaw${r.angle.yaw}_pitch${r.angle.pitch}.png`, data: await canvasBytes(r.canvas) });
-    out.zip = makeZip(files); if (download_) download(out.zip, `pose_angles_${st}.zip`);
+    const files = []; for (const [i, r] of res.entries()) files.push({ name: `${prefix()}_${String(i+1).padStart(2,'0')}_${r.angle.key}_yaw${r.angle.yaw}_pitch${r.angle.pitch}.png`, data: await canvasBytes(r.canvas) });
+    out.zip = makeZip(files); if (download_) download(out.zip, `${prefix()}_angles_${st}.zip`);
   }
-  if ($('multiSheet').checked) { out.sheet = contactSheet(res, W, H); if (download_) out.sheet.toBlob(b => download(b, `pose_sheet_${st}.png`), 'image/png'); }
+  if ($('multiSheet').checked) { out.sheet = contactSheet(res, W, H); if (download_) out.sheet.toBlob(b => download(b, `${prefix()}_sheet_${st}.png`), 'image/png'); }
   setStatus(`${list.length}개 각도를 저장했어요.`, 'ok'); return { res, ...out };
 }
 $('saveMulti').onclick = () => multiExport(true);
+$('shape').onchange = () => setShape($('shape').value);
 
 // ---------- 포즈 파일 불러오기 ----------
 export function loadPoseJson(data) {
@@ -481,7 +642,7 @@ function renderPeopleChips() {
   state.people.forEach((p, i) => {
     const chip = document.createElement('span'); chip.className = 'chip'; chip.textContent = `${i+1}번 사람`;
     const b = document.createElement('button'); b.textContent = '✕'; b.title = '이 사람 빼기';
-    b.onclick = () => { peopleRoot.remove(p.group); state.people = state.people.filter(q => q !== p); renderPeopleChips(); drawPhoto(); dirty(); };
+    b.onclick = () => { peopleRoot.remove(p.group); p.manGeos?.forEach(g => g.dispose()); state.people = state.people.filter(q => q !== p); renderPeopleChips(); drawPhoto(); dirty(); };
     chip.appendChild(b); box.appendChild(chip);
   });
 }
@@ -499,4 +660,4 @@ $('model').onchange = () => { if (state.photo && !state.busy) setStatus('정밀�
 // ---------- 시작 ----------
 addPerson(DEFAULT_POSE.map(a => new THREE.Vector3(...a)), new Array(18).fill(1));
 resize(); setView(0, 0); loop();
-window.poseApp = { camera, canvas, loadPoseJson, buildJson, renderPng, setView, handleFile, state, NAMES, renderAngles, contactSheet, multiExport, makeZip, ANGLES };
+window.poseApp = { setShape, getShape: () => shape, renderer, camera, canvas, loadPoseJson, buildJson, renderPng, setView, handleFile, state, NAMES, renderAngles, contactSheet, multiExport, makeZip, ANGLES };

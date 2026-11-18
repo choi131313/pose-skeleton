@@ -122,6 +122,51 @@ export function currentPoseForPrompt() {
 
 // ---------- 호출 ----------
 export class ApiError extends Error { constructor(msg, kind) { super(msg); this.kind = kind; } }
+// ---------- 토큰 사용량 ----------
+const KRW_PER_USD = 1340; // 대략 (2026-11 기준)
+let usageLog = [];
+const num = (x) => (Number.isFinite(+x) ? +x : 0);
+function normUsage(kind, u) {
+  if (!u) return null;
+  if (kind === 'openai') { const r = num(u.output_tokens_details?.reasoning_tokens);
+    return { requests: 1, input: num(u.input_tokens), cached: num(u.input_tokens_details?.cached_tokens), output: num(u.output_tokens), reasoning: r, total: num(u.total_tokens) || num(u.input_tokens) + num(u.output_tokens), usd: null }; }
+  if (kind === 'gemini') { const r = num(u.thoughtsTokenCount);
+    return { requests: 1, input: num(u.promptTokenCount), cached: num(u.cachedContentTokenCount), output: num(u.candidatesTokenCount) + r, reasoning: r, total: num(u.totalTokenCount), usd: null }; }
+  const r = num(u.completion_tokens_details?.reasoning_tokens), out = num(u.completion_tokens) + r; // xAI·내 서버
+  return { requests: 1, input: num(u.prompt_tokens), cached: num(u.prompt_tokens_details?.cached_tokens), output: out, reasoning: r,
+    total: num(u.total_tokens) || num(u.prompt_tokens) + out, usd: u.cost_in_usd_ticks != null ? num(u.cost_in_usd_ticks) / 1e10 : null };
+}
+function sumUsage(list) {
+  const t = { requests: 0, input: 0, cached: 0, output: 0, reasoning: 0, total: 0, usd: 0, usdUnknown: 0 };
+  for (const u of list) { if (!u) continue; for (const k of ['requests','input','cached','output','reasoning','total']) t[k] += num(u[k]);
+    if (u.usd == null) t.usdUnknown += num(u.requests) || 1; else t.usd += u.usd; }
+  return t;
+}
+const seoulDay = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+const LS_USAGE = 'poseSkel.usage.day';
+function localDay() { try { const d = JSON.parse(localStorage.getItem(LS_USAGE)); if (d?.date === seoulDay()) return d; } catch {} return { date: seoulDay(), ...sumUsage([]) }; }
+function addLocal(t) { const d = localDay(); for (const k of ['requests','input','cached','output','reasoning','total','usd','usdUnknown']) d[k] = num(d[k]) + num(t[k]);
+  try { localStorage.setItem(LS_USAGE, JSON.stringify(d)); } catch {} return d; }
+let serverDay = null; // { day:{requests,total,usd_ticks,...}, used_today, daily_limit }
+const fmt = (n) => Math.round(n).toLocaleString('ko-KR');
+const money = (usd, unknown = 0) => { if (!usd && unknown) return '요금 정보 없음';
+  const s = usd < 0.01 ? usd.toFixed(4) : usd.toFixed(3); return `약 ₩${fmt(usd * KRW_PER_USD)}${unknown ? '+α' : ''} ($${s})`; };
+const detail = (u) => `입력 ${fmt(u.input)}(캐시 ${fmt(u.cached)}) · 답 ${fmt(u.output - u.reasoning)} · 생각 ${fmt(u.reasoning)}`;
+function renderUsage(last) {
+  const el = $('aiUsage'); if (!el) return; const lines = [];
+  if (last && last.requests) lines.push([`<b>이번</b> ${fmt(last.total)}토큰${last.requests > 1 ? ` (${last.requests}번 요청)` : ''} · ${money(last.usd, last.usdUnknown)}`, detail(last)]);
+  if (serverDay?.day) { const d = serverDay.day;
+    lines.push([`<b>오늘 서버</b> ${fmt(serverDay.used_today)}/${fmt(serverDay.daily_limit)}회 · ${fmt(d.total)}토큰 · ${money(num(d.usd_ticks) / 1e10)}`, detail(d) + ' · 모든 기기 합계']); }
+  const l = localDay(); if (l.requests) lines.push([`<b>오늘 이 기기</b> ${fmt(l.requests)}회 · ${fmt(l.total)}토큰 · ${money(l.usd, l.usdUnknown)}`, detail(l)]);
+  el.innerHTML = lines.map(([x, t]) => `<div title="${t}">${x}</div>`).join('');
+  el.hidden = !lines.length; if (lines.length) el.insertAdjacentHTML('beforeend', `<div class="usageNote">원화는 1달러≈${KRW_PER_USD.toLocaleString('ko-KR')}원 어림값</div>`);
+}
+async function refreshServerUsage(password) {
+  if (!WORKER_URL || !password) return;
+  try { const { status, data } = await postJson(WORKER_URL.replace(/\/+$/, '') + '/v1/usage', {}, { password });
+    if (status === 200 && data?.day) { serverDay = data; renderUsage(null); } } catch {}
+}
+
 async function postJson(url, headers, body, signal) {
   let r;
   try { r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body), signal }); }
@@ -158,6 +203,7 @@ async function callOpenAI({ key, model, messages, signal }) {
   if (data?.status === 'incomplete') throw new PoseError('응답이 중간에 끊김');
   const parts = (data?.output || []).flatMap(o => o.content || []);
   const refusal = parts.find(c => c.type === 'refusal'); if (refusal) throw new ApiError('AI가 이 요청을 거절했어요. 다르게 표현해 보세요.', 'refusal');
+  usageLog.push(normUsage('openai', data?.usage));
   const text = data?.output_text || parts.filter(c => c.type === 'output_text').map(c => c.text).join('');
   return text;
 }
@@ -171,6 +217,7 @@ async function callXai({ key, model, messages, signal }) {
     ({ status, data } = await postJson(url, { Authorization: `Bearer ${key}` }, { ...base, response_format: { type: 'json_object' } }, signal));
   }
   if (status !== 200) throw friendlyError('xai', status, data);
+  usageLog.push(normUsage('xai', data?.usage));
   const ch = data?.choices?.[0];
   if (ch?.message?.refusal) throw new ApiError('AI가 이 요청을 거절했어요. 다르게 표현해 보세요.', 'refusal');
   if (ch?.finish_reason === 'content_filter') throw new ApiError('AI가 이 요청에 답하지 않았어요. 다르게 표현해 보세요.', 'blocked');
@@ -183,6 +230,8 @@ async function callServer({ key, messages, signal }) {
   try { ({ status, data } = await postJson(base + '/v1/pose', {}, { password: key, messages: messages.filter(m => m.role !== 'system').map(m => ({ role: m.role, content: m.content })) }, signal)); }
   catch (e) { if (e.kind === 'network') throw new ApiError('포즈 서버에 연결하지 못했어요. 인터넷을 확인하거나 잠시 후 다시 해 주세요.', 'server_down'); throw e; }
   if (status === 200 && data) {
+    usageLog.push(normUsage('xai', data.usage));
+    if (data.day) serverDay = { day: data.day, used_today: data.used_today, daily_limit: data.daily_limit };
     if (data.refusal) throw new ApiError('AI가 이 요청을 거절했어요. 다르게 표현해 보세요.', 'refusal');
     return data.content || '';
   }
@@ -212,6 +261,7 @@ async function callGemini({ key, model, messages, signal }) {
     generationConfig: { responseMimeType: 'application/json', responseSchema: toGemini(SCHEMA), temperature: 0.4 } };
   const { status, data } = await postJson(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, { 'x-goog-api-key': key }, body, signal);
   if (status !== 200) throw friendlyError('gemini', status, data);
+  usageLog.push(normUsage('gemini', data?.usageMetadata));
   const cand = data?.candidates?.[0];
   if (!cand) throw new ApiError(data?.promptFeedback?.blockReason ? 'AI가 이 요청을 막았어요. 다르게 표현해 보세요.' : 'AI가 빈 응답을 보냈어요. 다시 해 주세요.', 'empty');
   if (cand.finishReason && !['STOP', 'MAX_TOKENS'].includes(cand.finishReason)) throw new ApiError('AI가 이 요청에 답하지 않았어요. 다르게 표현해 보세요.', 'blocked');
@@ -220,6 +270,7 @@ async function callGemini({ key, model, messages, signal }) {
 
 export async function generatePose({ provider, key, model, text, current, signal, onRetry }) {
   const call = { server: callServer, xai: callXai, gemini: callGemini, openai: callOpenAI }[provider] || callXai;
+  usageLog = [];
   const messages = [{ role: 'system', content: SYSTEM }, { role: 'user', content: userMessage(text, current) }];
   let reply = await call({ key, model, messages, signal }), res, problem;
   try { res = sanitizeReply(reply); if (res.badBones > 3) problem = `Several limb lengths were implausible (${res.fixes.filter(f => f.includes('길이')).join('; ')}).`; }
@@ -254,9 +305,10 @@ function init() {
     $('aiKeyState').textContent = key.value ? (srv ? '비밀번호 저장됨 (이 브라우저)' : '키 저장됨 (이 브라우저)') : (srv ? '비밀번호 없음' : '키 없음');
   };
   prov.value = PROVIDERS[localStorage.getItem(LS.provider)] ? localStorage.getItem(LS.provider) : (WORKER_URL ? 'server' : 'xai'); load();
-  prov.onchange = () => { localStorage.setItem(LS.provider, prov.value); load(); };
+  prov.onchange = () => { localStorage.setItem(LS.provider, prov.value); load(); if (prov.value === 'server') refreshServerUsage(localStorage.getItem(LS.key('server'))); };
+  renderUsage(null); if (prov.value === 'server') refreshServerUsage(localStorage.getItem(LS.key('server')));
   model.onchange = () => { const m = model.value.trim(); m ? localStorage.setItem(LS.model(prov.value), m) : localStorage.removeItem(LS.model(prov.value)); if (!m) load(); };
-  key.onchange = () => { const k = key.value.trim(); k ? localStorage.setItem(LS.key(prov.value), k) : localStorage.removeItem(LS.key(prov.value)); load(); };
+  key.onchange = () => { const k = key.value.trim(); k ? localStorage.setItem(LS.key(prov.value), k) : localStorage.removeItem(LS.key(prov.value)); load(); if (prov.value === 'server' && k) refreshServerUsage(k); };
   $('aiClearKey').onclick = () => {
     if (prov.value === 'server') { localStorage.removeItem(LS.key('server')); load(); setAi('저장된 비밀번호를 지웠어요.', 'ok'); return; }
     Object.keys(PROVIDERS).filter(p => p !== 'server').forEach(p => localStorage.removeItem(LS.key(p))); load(); setAi('저장된 API 키를 모두 지웠어요.', 'ok'); };
@@ -275,6 +327,7 @@ function init() {
     try {
       const res = await generatePose({ provider: p, key: k, model: m, text, current, signal: ctrl.signal, onRetry: () => setAi('응답이 이상해서 한 번 더 요청하는 중이에요…') });
       loadPoseJson(toPoseFile(res, { yaw_deg: 20, pitch_deg: 8 }));
+      document.dispatchEvent(new CustomEvent('pose:generated', { detail: { prompt: text, description: res.description, edited: !!current, provider: p, usage: sumUsage(usageLog) } }));
       $('aiEdit').checked = true;
       const fixNote = res.fixes.length ? ` (자동 보정 ${res.fixes.length}곳)` : '';
       setAi((res.description || '포즈를 만들었어요.') + fixNote + ' 돌려 보거나 관절을 끌어 고칠 수 있어요.', 'ok');
@@ -284,10 +337,13 @@ function init() {
       console.error(e);
       if (e instanceof ApiError && e.kind === 'password') { $('aiSettings').open = true; key.select(); }
       setAi(e instanceof ApiError ? e.message : (e.name === 'AbortError' ? '멈췄어요.' : '포즈를 만들지 못했어요. 다시 해 주세요.'), 'err');
-    } finally { clearTimeout(timer); busy = false; $('aiGo').textContent = '만들기'; }
+    } finally {
+      clearTimeout(timer); busy = false; $('aiGo').textContent = '만들기';
+      const t = sumUsage(usageLog); usageLog = []; if (t.requests) { addLocal(t); renderUsage(t); } // 실패해도 쓴 만큼은 기록
+    }
   };
   $('aiText').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('aiGo').click(); });
 }
 function setAi(msg, cls = '') { const el = $('aiStatus'); el.textContent = msg; el.className = 'status ' + cls; }
 init();
-window.poseAI = { sanitizeReply, generatePose, SCHEMA, toPoseFile, PROVIDERS, currentPoseForPrompt };
+window.poseAI = { normUsage, sumUsage, renderUsage, refreshServerUsage, sanitizeReply, generatePose, SCHEMA, toPoseFile, PROVIDERS, currentPoseForPrompt };

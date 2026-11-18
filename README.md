@@ -18,6 +18,13 @@
 - JSON 저장 / **포즈 파일 불러오기** (아래 형식)
 - **말로 포즈 만들기**: “오른손 들고 몸 왼쪽으로 튼 자세”처럼 적으면 본인 AI API 키(기본 xAI Grok, 선택으로 OpenAI·Google Gemini)로 포즈를 만들어
   3D 화면에 불러와요. ‘지금 포즈 고치기’를 켜고 “왼팔도 들어줘”처럼 이어서 고칠 수 있어요.
+- **모양: 뼈대 / 마네킹 / 둘 다** (3D 보기 위 ‘모양’). 마네킹은 같은 18점으로 만든 회색 인형(원기둥 팔다리·몸통·머리, 간단한 명암)이고
+  관절을 끌거나 AI 포즈를 불러오면 같이 움직여요. PNG·여러 각도 저장도 고른 모양대로 저장돼요(마네킹은 밝은 단색 배경, 관절·바닥 없이).
+  기본값은 뼈대이고 OpenPose PNG는 그대로예요.
+- **토큰 사용량**: 말로 포즈를 만들 때마다 이번 요청 토큰·요금(어림, 원화 1달러≈1,340원)과 오늘 합계를 보여 줘요.
+  ‘내 서버’는 서버(KV)에 오늘 합계를 저장해서 모든 기기 합계 + 오늘 횟수(…/200)를, 이 기기 합계는 브라우저에 따로 저장해요.
+- **📚 보관함**: 말로 만든 포즈를 프롬프트·날짜·썸네일·좌표와 함께 브라우저(IndexedDB)에 자동 저장(끌 수 있음),
+  ‘지금 포즈 담기’, 불러오기, 이름 바꾸기, 삭제, 검색, 내보내기/가져오기(JSON, `pose-skeleton-library/v1`).
 
 ## 파일 구성
 ```
@@ -25,7 +32,8 @@ index.html  style.css  app.js        웹페이지
 config.js   WORKER_URL (포즈 서버 주소, 비어 있으면 서버 방식 숨김)
 pose-prompt.js  AI 프롬프트·JSON 스키마 (페이지와 서버가 같이 씀)
 worker/     Cloudflare Worker ‘포즈 서버’ (비밀번호로 보호되는 xAI 프록시)
-ai.js       말로 포즈 만들기 (xAI / OpenAI / Gemini 직접 호출, 응답 검증·보정)
+ai.js       말로 포즈 만들기 (xAI / OpenAI / Gemini 직접 호출, 응답 검증·보정, 토큰 사용량)
+library.js  보관함 (IndexedDB)
 vendor/      three.js r170, OrbitControls, @mediapipe/tasks-vision 0.10.21 (wasm 포함)
 models/      pose_landmarker_full.task, pose_landmarker_heavy.task
 render_pose.py  포즈 JSON → OpenPose PNG 명령줄 렌더러 (Python3 + Pillow)
@@ -167,8 +175,9 @@ node test/worker.test.mjs                      # 29개 항목 (다시 돌릴 땐
 ```
 
 **서버 API** — `POST /v1/pose` `{"password": "...", "messages": [{"role":"user","content":"..."}], "model"?: "grok-4.7"}`
-→ `200 {"content": "<포즈 JSON 문자열>", "used_today": n, "daily_limit": n}` / 오류 `{"error": "bad_password|locked|daily_limit|no_credits|upstream_auth|upstream_rate|upstream_down|upstream_error|too_large|bad_request|model_not_allowed|bad_origin|not_configured"}`.
+→ `200 {"content": "<포즈 JSON 문자열>", "usage": {xAI usage}, "day": {오늘 합계}, "used_today": n, "daily_limit": n}` / 오류 `{"error": "bad_password|locked|daily_limit|no_credits|upstream_auth|upstream_rate|upstream_down|upstream_error|too_large|bad_request|model_not_allowed|bad_origin|not_configured"}`.
 `GET /health` → `{"ok":true,"configured":true}`.
+`POST /v1/usage` `{"password": "..."}` → 오늘(서울 날짜) 합계 `{"day": {"requests","input","cached","output","reasoning","total","usd_ticks"}, "used_today", "daily_limit"}` (Grok 호출 없음, KV `usage:YYYY-MM-DD`, 40일 보관).
 
 ## 명령줄 렌더러 `render_pose.py`
 ```bash

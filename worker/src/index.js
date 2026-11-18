@@ -64,6 +64,24 @@ async function dayIncr(env) {
   return n;
 }
 
+// 하루 토큰 사용량 합계 (서울 날짜 기준, KV)
+const EMPTY_DAY = () => ({ requests: 0, input: 0, cached: 0, output: 0, reasoning: 0, total: 0, usd_ticks: 0 });
+async function dayUsage(env) {
+  const k = 'usage:' + seoulDay();
+  if (env.POSE_KV) { try { return { ...EMPTY_DAY(), ...(JSON.parse(await env.POSE_KV.get(k)) || {}) }; } catch { return EMPTY_DAY(); } }
+  return mem.usage?.key === k ? { ...mem.usage.v } : EMPTY_DAY();
+}
+async function addUsage(env, u) {
+  const d = await dayUsage(env), n = (x) => (Number.isFinite(+x) ? +x : 0);
+  d.requests += 1; d.input += n(u?.prompt_tokens); d.cached += n(u?.prompt_tokens_details?.cached_tokens);
+  d.output += n(u?.completion_tokens); d.reasoning += n(u?.completion_tokens_details?.reasoning_tokens);
+  d.total += n(u?.total_tokens); d.usd_ticks += n(u?.cost_in_usd_ticks);
+  const k = 'usage:' + seoulDay();
+  if (env.POSE_KV) await env.POSE_KV.put(k, JSON.stringify(d), { expirationTtl: 40 * 86400 });
+  else mem.usage = { key: k, v: d };
+  return d;
+}
+
 function validate(body, env) {
   if (!body || typeof body !== 'object') return 'bad_request';
   const { messages } = body;
@@ -113,7 +131,7 @@ export default {
     if (req.method === 'OPTIONS') return ch ? new Response(null, { status: 204, headers: ch }) : new Response(null, { status: 403 });
     if (!ch) return json({ error: 'bad_origin' }, 403);
     if (req.method === 'GET' && url.pathname === '/health') return json({ ok: true, configured: !!env.XAI_API_KEY && !!env.PAGE_PASSWORD }, 200, ch);
-    if (req.method !== 'POST' || url.pathname !== '/v1/pose') return json({ error: 'not_found' }, 404, ch);
+    if (req.method !== 'POST' || !['/v1/pose', '/v1/usage'].includes(url.pathname)) return json({ error: 'not_found' }, 404, ch);
     if (!env.XAI_API_KEY || !env.PAGE_PASSWORD) return json({ error: 'not_configured' }, 503, ch);
     const len = +(req.headers.get('Content-Length') || 0);
     if (len > 64 * 1024) return json({ error: 'too_large' }, 413, ch);
@@ -131,6 +149,8 @@ export default {
       return json({ error: n >= maxFails ? 'locked' : 'bad_password', remaining: Math.max(0, maxFails - n) }, n >= maxFails ? 429 : 401, ch);
     }
     await clearFails(env, ip);
+    if (url.pathname === '/v1/usage') // 오늘 사용량만 (Grok 호출 없음)
+      return json({ day: { date: seoulDay(), ...(await dayUsage(env)) }, used_today: await dayCount(env), daily_limit: +cfg(env, 'DAILY_LIMIT') }, 200, ch);
 
     const bad = validate(body, env);
     if (bad) return json({ error: bad }, bad === 'too_large' ? 413 : 400, ch);
@@ -145,9 +165,10 @@ export default {
     try { up = await callXai(env, model, body.messages); }
     catch { return json({ error: 'upstream_down' }, 502, ch); }
     if (up.status !== 200) { const [code, st] = upstreamError(up.status, up.data); return json({ error: code }, st, ch); }
+    let day = null; try { day = { date: seoulDay(), ...(await addUsage(env, up.data?.usage)) }; } catch {}
     const choice = up.data?.choices?.[0];
     const c = choice?.message?.content;
     return json({ content: Array.isArray(c) ? c.map(x => x.text || '').join('') : (c || ''), refusal: choice?.message?.refusal || null,
-      finish_reason: choice?.finish_reason || null, model, usage: up.data?.usage || null, used_today: used, daily_limit: limit }, 200, ch);
+      finish_reason: choice?.finish_reason || null, model, usage: up.data?.usage || null, day, used_today: used, daily_limit: limit }, 200, ch);
   },
 };

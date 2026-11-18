@@ -14,6 +14,6 @@ http.createServer((req, res) => {
     const send = (st, o) => { res.writeHead(st, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
     if (text.includes('CREDITS')) return send(403, { code: 'permission-denied', error: 'Your team has either used all available credits or reached its monthly spending limit.' });
     if (text.includes('SCHEMAFAIL') && body.response_format?.type === 'json_schema') return send(400, { code: 'invalid-argument', error: 'response_format json_schema not supported' });
-    send(200, { id: 'x', object: 'chat.completion', model: body.model, choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(pose), refusal: null }, finish_reason: 'stop' }], usage: { prompt_tokens: 2000, completion_tokens: 800 } });
+    send(200, { id: 'x', object: 'chat.completion', model: body.model, choices: [{ index: 0, message: { role: 'assistant', content: JSON.stringify(pose), refusal: null }, finish_reason: 'stop' }], usage: { prompt_tokens: 3500, completion_tokens: 457, total_tokens: 7774, prompt_tokens_details: { cached_tokens: 3456 }, completion_tokens_details: { reasoning_tokens: 3817 }, cost_in_usd_ticks: 274600000 } });
   });
 }).listen(9999, () => console.log('mock xai on 9999'));

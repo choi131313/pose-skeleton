@@ -62,6 +62,13 @@ x = await post({ password: PW, messages: msg('CREDITS') });
 ok(x.s === 402 && x.j.error === 'no_credits', 'upstream out of credits → no_credits', x.s);
 // 하루 상한 (DAILY_LIMIT=6, 지금까지 6번 사용: 정상1+점프+grok-4.3+SCHEMAFAIL+CREDITS = 5 → 1번 더 OK, 그 다음 거절)
 x = await post({ password: PW, messages: msg('하나 더') }); ok(x.s === 200, 'request within daily limit', `used=${x.j?.used_today}`);
+const dayA = x.j?.day;
+ok(x.j?.usage?.total_tokens === 7774 && dayA && dayA.requests >= 1 && dayA.total === dayA.requests * 7774 && dayA.usd_ticks === dayA.requests * 274600000 && dayA.reasoning === dayA.requests * 3817, 'usage + daily usage totals returned', JSON.stringify(dayA));
+x = await post({ password: PW }, { path: '/v1/usage', ip: '10.0.0.7' });
+ok(x.s === 200 && x.j.day.requests === dayA.requests && x.j.day.total === dayA.total && x.j.used_today >= dayA.requests && x.j.daily_limit === 6, '/v1/usage returns same day totals (no Grok call)', JSON.stringify(x.j));
+const cnt0 = (await last()).count;
+x = await post({ password: 'nope' }, { path: '/v1/usage', ip: '10.0.0.8' }); ok(x.s === 401, '/v1/usage needs password', x.s);
+ok((await last()).count === cnt0, '/v1/usage never calls xAI');
 x = await post({ password: PW, messages: msg('초과') }); ok(x.s === 429 && x.j.error === 'daily_limit', 'daily limit reached', JSON.stringify(x.j));
 // 비밀번호 (MAX_FAILS=3)
 const t0 = Date.now();

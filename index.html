@@ -49,6 +49,7 @@
       <label class="chk" title="체크하면 지금 보이는 포즈를 바탕으로 고쳐요 (예: 왼팔도 들어줘)"><input type="checkbox" id="aiEdit"> 지금 포즈 고치기</label>
     </div>
     <div id="aiStatus" class="status"></div>
+    <div id="aiUsage" class="usage" hidden></div>
     <ul id="aiHistory" class="aiHistory"></ul>
     <details id="aiSettings" class="aiSettings">
       <summary>AI 설정</summary>
@@ -62,6 +63,19 @@
       <p class="hint" id="aiNoteKey">🔑 키는 이 브라우저(이 기기)에만 저장되고, 고른 AI 회사(xAI·OpenAI·Google 중 고른 곳) 서버로만 보내져요. 이 사이트 서버는 없어서 어디에도 따로 저장되지 않아요. 요청할 때마다 키 주인에게 요금이 청구될 수 있어요. 공용 PC에서는 다 쓰고 ‘키 지우기’를 눌러 주세요.</p>
       <p class="hint" id="aiNoteServer" hidden>🔒 비밀번호는 이 브라우저에만 저장되고 내 포즈 서버로만 보내져요. Grok 키는 서버 안에만 있어서 이 페이지에는 나오지 않아요. 공용 PC에서는 다 쓰고 ‘비밀번호 지우기’를 눌러 주세요.</p>
     </details>
+
+    <h2 class="sec2">📚 보관함 <span id="libCount" class="libCount"></span></h2>
+    <div class="row">
+      <button id="libSave">지금 포즈 담기</button>
+      <button id="libExport">내보내기</button>
+      <button id="libImportBtn">가져오기</button><input id="libImport" type="file" accept=".json,application/json" hidden>
+    </div>
+    <div class="row">
+      <label class="chk"><input type="checkbox" id="libAuto" checked> 말로 만든 포즈 자동 저장</label>
+      <input id="libSearch" type="search" placeholder="검색" class="libSearch">
+    </div>
+    <ul id="libList" class="libList"></ul>
+    <p class="hint">보관함은 이 브라우저에만 저장돼요. 다른 기기로 옮기려면 ‘내보내기’ 파일을 ‘가져오기’ 하세요.</p>
   </section>
 
   <section class="panel viewPanel">
@@ -74,6 +88,7 @@
       <button data-view="top">위에서</button>
       <button id="resetView">시점 초기화</button>
       <button id="resetPose">포즈 되돌리기</button>
+      <label class="shapeSel">모양 <select id="shape" title="보기와 저장 모양"><option value="skeleton" selected>뼈대</option><option value="mannequin">마네킹</option><option value="both">둘 다</option></select></label>
       <label class="chk"><input type="checkbox" id="grid" checked> 바닥</label>
       <label class="chk"><input type="checkbox" id="editJoints" checked> 관절 끌기</label>
     </div>
@@ -128,6 +143,7 @@
       <div class="row"><button id="saveMulti" class="primary">선택한 각도 저장</button></div>
       <p class="hint">각도는 사람 정면(사진 찍은 방향) 기준이고, ‘오른쪽’은 정면에서 봤을 때 화면 오른쪽에서 본다는 뜻이에요. 모든 각도에서 같은 크기로 보이도록 자동으로 화면에 맞춰요. ‘모아 보기’ 그림에는 각도 이름이 적혀 있어서 ControlNet에는 각도별 PNG를 쓰세요.</p>
     </details>
+    <p class="hint">‘모양’을 마네킹으로 바꾸면 밝은 배경의 회색 인형으로 저장돼요 (그림 참고용). 둘 다는 인형 위에 뼈대를 겹쳐요.</p>
     <p class="hint">검은 배경에 OpenPose 18점(COCO) 색깔 뼈대라서 ControlNet(openpose) 같은 곳에 그대로 넣을 수 있어요. 이때 전처리기(preprocessor)는 ‘없음(none)’으로 두세요.</p>
 
     <details class="limits" open>
@@ -147,5 +163,6 @@
 <footer class="foot">MediaPipe Pose Landmarker(Apache-2.0) · three.js(MIT) 사용 · posex에서 영감을 받았어요.</footer>
 <script type="module" src="app.js"></script>
 <script type="module" src="ai.js"></script>
+<script type="module" src="library.js"></script>
 </body>
 </html>
