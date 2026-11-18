@@ -52,7 +52,7 @@ function render() {
     const img = document.createElement('img'); img.alt = ''; if (it.thumb) img.src = it.thumb; img.title = '불러오기'; img.onclick = () => loadItem(it);
     const meta = document.createElement('div'); meta.className = 'libMeta';
     const nm = document.createElement('div'); nm.className = 'libName'; nm.textContent = it.name;
-    const pr = document.createElement('div'); pr.className = 'libPrompt'; pr.textContent = it.prompt ? (it.source === 'edit' ? '✏️ ' : '💬 ') + it.prompt : (it.description || '직접 담은 포즈'); pr.title = it.prompt || '';
+    const pr = document.createElement('div'); pr.className = 'libPrompt'; pr.textContent = it.prompt ? (it.source === 'edit' ? '✏️ ' : it.source === 'queue' ? '📋 ' : '💬 ') + it.prompt : (it.description || '직접 담은 포즈'); pr.title = it.prompt || '';
     const dt = document.createElement('div'); dt.textContent = dateKo(it.created) + (it.usage?.total ? ` · ${it.usage.total.toLocaleString('ko-KR')}토큰` : '');
     meta.append(nm, pr, dt);
     const btns = document.createElement('div'); btns.className = 'libBtns';
@@ -92,7 +92,7 @@ export async function importData(data) {
     if (!raw || typeof raw !== 'object' || !raw.pose || !(raw.pose.people || raw.pose.pose_keypoints_3d)) continue;
     if (raw.id && have.has(raw.id)) continue;
     const it = { id: raw.id && typeof raw.id === 'string' ? raw.id : newId(), name: shortName(raw.name || raw.prompt), prompt: String(raw.prompt || '').slice(0, 2000),
-      description: String(raw.description || '').slice(0, 400), source: ['ai', 'edit', 'manual'].includes(raw.source) ? raw.source : 'manual',
+      description: String(raw.description || '').slice(0, 400), source: ['ai', 'edit', 'manual', 'queue'].includes(raw.source) ? raw.source : 'manual',
       created: raw.created && !isNaN(new Date(raw.created)) ? raw.created : new Date().toISOString(),
       thumb: typeof raw.thumb === 'string' && raw.thumb.startsWith('data:image/') ? raw.thumb : '', pose: raw.pose, usage: raw.usage };
     if (!it.thumb) { try { loadPoseJson(it.pose); touched = true; it.thumb = thumb(it.pose.view); } catch { continue; } }
@@ -114,8 +114,8 @@ async function init() {
     try { const n = await importData(await f.text()); say(n ? `보관함에 ${n}개를 가져왔어요.` : '새로 가져올 포즈가 없어요 (이미 있는 것은 건너뛰어요).'); }
     catch (err) { console.error(err); say('가져오지 못했어요: ' + err.message, 'err'); } };
   $('libSearch').oninput = render;
-  document.addEventListener('pose:generated', (e) => { if (!$('libAuto').checked) return; const d = e.detail || {};
-    addCurrent({ prompt: d.prompt, description: d.description, source: d.edited ? 'edit' : 'ai', usage: d.usage }).catch(err => console.warn('보관함 저장 실패', err)); });
+  document.addEventListener('pose:generated', (e) => { const d = e.detail || {}; if (!$('libAuto').checked && !d.force) return; // 대기열은 항상 저장
+    addCurrent({ prompt: d.prompt, description: d.description, source: d.edited ? 'edit' : d.force ? 'queue' : 'ai', usage: d.usage }).catch(err => console.warn('보관함 저장 실패', err)); });
   render();
   if (memOnly) say('이 브라우저에서는 보관함을 저장할 수 없어서, 새로고침하면 사라져요.', 'err');
 }

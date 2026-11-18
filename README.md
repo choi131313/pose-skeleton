@@ -23,6 +23,10 @@
   기본값은 뼈대이고 OpenPose PNG는 그대로예요.
 - **토큰 사용량**: 말로 포즈를 만들 때마다 이번 요청 토큰·요금(어림, 원화 1달러≈1,340원)과 오늘 합계를 보여 줘요.
   ‘내 서버’는 서버(KV)에 오늘 합계를 저장해서 모든 기기 합계 + 오늘 횟수(…/200)를, 이 기기 합계는 브라우저에 따로 저장해요.
+- **📋 대기열**: 프롬프트 여러 개(한 줄에 하나, 붙여넣기 가능)를 넣고 시작하면 지금 고른 AI로 **하나씩 차례로**(동시에 안 함) 새 포즈를 만들어
+  보관함에 항상 저장해요. 상태(대기/만드는 중/완료/실패), 순서 바꾸기·빼기·다시, 시작/일시정지(지금 것 끝나면)/멈추기, 예상 요금(1개 약 ₩40~70),
+  대기열 합계 토큰·요금. 실패하면 한 번 더 해 보고 실패로 표시한 뒤 다음으로, 비밀번호·한도 같은 오류나 서버 하루 한도에 닿으면 멈춰요.
+  브라우저(localStorage)에 남아서 새로고침해도 이어서 할 수 있어요(만들던 항목은 대기로).
 - **📚 보관함**: 말로 만든 포즈를 프롬프트·날짜·썸네일·좌표와 함께 브라우저(IndexedDB)에 자동 저장(끌 수 있음),
   ‘지금 포즈 담기’, 불러오기, 이름 바꾸기, 삭제, 검색, 내보내기/가져오기(JSON, `pose-skeleton-library/v1`).
 
@@ -34,6 +38,7 @@ pose-prompt.js  AI 프롬프트·JSON 스키마 (페이지와 서버가 같이 �
 worker/     Cloudflare Worker ‘포즈 서버’ (비밀번호로 보호되는 xAI 프록시)
 ai.js       말로 포즈 만들기 (xAI / OpenAI / Gemini 직접 호출, 응답 검증·보정, 토큰 사용량)
 library.js  보관함 (IndexedDB)
+queue.js    대기열 (차례로 만들기)
 vendor/      three.js r170, OrbitControls, @mediapipe/tasks-vision 0.10.21 (wasm 포함)
 models/      pose_landmarker_full.task, pose_landmarker_heavy.task
 render_pose.py  포즈 JSON → OpenPose PNG 명령줄 렌더러 (Python3 + Pillow)

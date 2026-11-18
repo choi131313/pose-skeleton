@@ -2,6 +2,7 @@
 import { loadPoseJson, buildJson, state } from './app.js';
 import { NAMES, REF, SCHEMA, SYSTEM } from './pose-prompt.js';
 import { WORKER_URL } from './config.js';
+import { initQueue } from './queue.js';
 
 const $ = (id) => document.getElementById(id);
 const LS = { provider: 'poseSkel.ai.provider', model: (p) => `poseSkel.ai.model.${p}`, key: (p) => `poseSkel.ai.key.${p}` };
@@ -164,7 +165,7 @@ function renderUsage(last) {
 async function refreshServerUsage(password) {
   if (!WORKER_URL || !password) return;
   try { const { status, data } = await postJson(WORKER_URL.replace(/\/+$/, '') + '/v1/usage', {}, { password });
-    if (status === 200 && data?.day) { serverDay = data; renderUsage(null); } } catch {}
+    if (status === 200 && data?.day) { serverDay = data; renderUsage(null); document.dispatchEvent(new Event('pose:usage')); } } catch {}
 }
 
 async function postJson(url, headers, body, signal) {
@@ -236,6 +237,7 @@ async function callServer({ key, messages, signal }) {
     return data.content || '';
   }
   const code = data?.error;
+  if (code === 'daily_limit' && data?.limit) { serverDay = { ...(serverDay || {}), used_today: data.limit, daily_limit: data.limit }; renderUsage(null); }
   const M = {
     bad_password: [`비밀번호가 틀렸어요.${data?.remaining != null ? ` (남은 기회 ${data.remaining}번)` : ''} 설정에서 다시 넣어 주세요.`, 'password'],
     locked: [`비밀번호를 여러 번 틀려서 ${Math.round((data?.retry_after || 900) / 60)}분 동안 잠겼어요. 잠시 후 다시 해 주세요.`, 'locked'],
@@ -315,33 +317,48 @@ function init() {
   $('aiReset').onclick = () => { localStorage.removeItem(LS.model(prov.value)); load(); };
 
   let busy = false, ctrl = null;
+  const creds = () => {
+    const p = prov.value, k = localStorage.getItem(LS.key(p)) || key.value.trim();
+    if (!k) { $('aiSettings').open = true; key.focus(); throw new ApiError(p === 'server' ? '먼저 설정에 비밀번호를 넣어 주세요.' : `먼저 설정에서 ${PROVIDERS[p].name} API 키를 넣어 주세요.`, 'nokey'); }
+    return { p, k, m: model.value.trim() || PROVIDERS[p].defaultModel };
+  };
+  // 포즈 하나 만들기 (버튼·대기열 공용). 쓴 토큰은 성공·실패 모두 onUsage로 알려 줌
+  async function runOne({ text, current = null, signal, onRetry, onUsage, force = false }) {
+    const { p, k, m } = creds();
+    busy = true; const c = ctrl = new AbortController(); const timer = setTimeout(() => c.abort(), 180000);
+    const onAbort = () => c.abort(); signal?.addEventListener('abort', onAbort);
+    try {
+      const res = await generatePose({ provider: p, key: k, model: m, text, current, signal: c.signal, onRetry });
+      loadPoseJson(toPoseFile(res, { yaw_deg: 20, pitch_deg: 8 }));
+      document.dispatchEvent(new CustomEvent('pose:generated', { detail: { prompt: text, description: res.description, edited: !!current, provider: p, usage: sumUsage(usageLog), force } }));
+      if (res.fixes.length) console.info('자동 보정:', res.fixes);
+      const hist = $('aiHistory'); const li = document.createElement('li'); li.textContent = (current ? '✏️ ' : '🆕 ') + text; hist.prepend(li);
+      return res;
+    } finally {
+      clearTimeout(timer); signal?.removeEventListener('abort', onAbort); busy = false; ctrl = null;
+      const t = sumUsage(usageLog); usageLog = []; if (t.requests) { addLocal(t); renderUsage(t); } // 실패해도 쓴 만큼은 기록
+      onUsage?.(t);
+    }
+  }
   $('aiGo').onclick = async () => {
+    if (window.poseQueue?.running()) { setAi('대기열이 도는 중이에요. 대기열을 멈춘 뒤 써 주세요.', 'err'); return; }
     if (busy) { ctrl?.abort(); return; }
     const text = $('aiText').value.trim(); if (!text) { setAi('어떤 자세인지 적어 주세요.', 'err'); return; }
-    const p = prov.value, k = localStorage.getItem(LS.key(p)) || key.value.trim();
-    if (!k) { $('aiSettings').open = true; setAi(p === 'server' ? '먼저 설정에 비밀번호를 넣어 주세요.' : `먼저 설정에서 ${PROVIDERS[p].name} API 키를 넣어 주세요.`, 'err'); key.focus(); return; }
-    const m = model.value.trim() || PROVIDERS[p].defaultModel;
     const current = $('aiEdit').checked && state.people.length ? currentPoseForPrompt() : null;
-    busy = true; ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 180000);
-    $('aiGo').textContent = '멈추기'; setAi(current ? '지금 포즈를 고치는 중이에요…' : '포즈를 만드는 중이에요… (보통 20초~1분, 길면 2분쯤 걸려요)');
     try {
-      const res = await generatePose({ provider: p, key: k, model: m, text, current, signal: ctrl.signal, onRetry: () => setAi('응답이 이상해서 한 번 더 요청하는 중이에요…') });
-      loadPoseJson(toPoseFile(res, { yaw_deg: 20, pitch_deg: 8 }));
-      document.dispatchEvent(new CustomEvent('pose:generated', { detail: { prompt: text, description: res.description, edited: !!current, provider: p, usage: sumUsage(usageLog) } }));
+      creds();
+      $('aiGo').textContent = '멈추기'; setAi(current ? '지금 포즈를 고치는 중이에요…' : '포즈를 만드는 중이에요… (보통 20초~1분, 길면 2분쯤 걸려요)');
+      const res = await runOne({ text, current, onRetry: () => setAi('응답이 이상해서 한 번 더 요청하는 중이에요…') });
       $('aiEdit').checked = true;
       const fixNote = res.fixes.length ? ` (자동 보정 ${res.fixes.length}곳)` : '';
       setAi((res.description || '포즈를 만들었어요.') + fixNote + ' 돌려 보거나 관절을 끌어 고칠 수 있어요.', 'ok');
-      if (res.fixes.length) console.info('자동 보정:', res.fixes);
-      const hist = $('aiHistory'); const li = document.createElement('li'); li.textContent = (current ? '✏️ ' : '🆕 ') + text; hist.prepend(li);
     } catch (e) {
       console.error(e);
       if (e instanceof ApiError && e.kind === 'password') { $('aiSettings').open = true; key.select(); }
       setAi(e instanceof ApiError ? e.message : (e.name === 'AbortError' ? '멈췄어요.' : '포즈를 만들지 못했어요. 다시 해 주세요.'), 'err');
-    } finally {
-      clearTimeout(timer); busy = false; $('aiGo').textContent = '만들기';
-      const t = sumUsage(usageLog); usageLog = []; if (t.requests) { addLocal(t); renderUsage(t); } // 실패해도 쓴 만큼은 기록
-    }
+    } finally { $('aiGo').textContent = '만들기'; }
   };
+  initQueue({ runOne, isBusy: () => busy, provider: () => prov.value, serverDay: () => serverDay, KRW_PER_USD });
   $('aiText').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('aiGo').click(); });
 }
 function setAi(msg, cls = '') { const el = $('aiStatus'); el.textContent = msg; el.className = 'status ' + cls; }

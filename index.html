@@ -51,6 +51,17 @@
     <div id="aiStatus" class="status"></div>
     <div id="aiUsage" class="usage" hidden></div>
     <ul id="aiHistory" class="aiHistory"></ul>
+    <details id="queueBox" class="queue">
+      <summary>📋 대기열 (여러 개 차례로) <span id="qCount" class="libCount"></span></summary>
+      <textarea id="qText" rows="3" placeholder="한 줄에 하나씩 적거나 붙여넣기&#10;예) 달리는 자세&#10;예) 앉아서 책 읽는 자세"></textarea>
+      <div class="row"><button id="qAdd">대기열에 추가</button><button id="qFromAi" title="위 ‘말로 포즈 만들기’ 칸의 내용을 하나로 추가">위 칸 내용 추가</button></div>
+      <div class="row"><button id="qStart" class="primary">시작</button><button id="qPause">일시정지</button><button id="qStop">멈추기</button><button id="qClear">끝난 것 지우기</button></div>
+      <div id="qEst" class="hint qEst"></div>
+      <div id="qStatus" class="status" hidden></div>
+      <ol id="qList" class="qList"></ol>
+      <div id="qTotal" class="usage" hidden></div>
+      <p class="hint">하나씩 차례로 새 포즈를 만들고, 결과는 📚 보관함에 저장돼요. 실패하면 한 번 더 해 보고 넘어가요. 이 브라우저에 남아서 새로고침해도 이어서 할 수 있어요.</p>
+    </details>
     <details id="aiSettings" class="aiSettings">
       <summary>AI 설정</summary>
       <div class="row"><label>AI
