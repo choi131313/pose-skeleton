@@ -155,7 +155,7 @@ const detail = (u) => `입력 ${fmt(u.input)}(캐시 ${fmt(u.cached)}) · 답 ${
 function renderUsage(last) {
   const el = $('aiUsage'); if (!el) return; const lines = [];
   if (last && last.requests) lines.push([`<b>이번</b> ${fmt(last.total)}토큰${last.requests > 1 ? ` (${last.requests}번 요청)` : ''} · ${money(last.usd, last.usdUnknown)}`, detail(last)]);
-  if (serverDay?.day) { const d = serverDay.day;
+  if (serverDay?.day) { const d = { ...serverDay.day, output: num(serverDay.day.output) + num(serverDay.day.reasoning) }; // 서버 output = 답만
     lines.push([`<b>오늘 서버</b> ${fmt(serverDay.used_today)}/${fmt(serverDay.daily_limit)}회 · ${fmt(d.total)}토큰 · ${money(num(d.usd_ticks) / 1e10)}`, detail(d) + ' · 모든 기기 합계']); }
   const l = localDay(); if (l.requests) lines.push([`<b>오늘 이 기기</b> ${fmt(l.requests)}회 · ${fmt(l.total)}토큰 · ${money(l.usd, l.usdUnknown)}`, detail(l)]);
   el.innerHTML = lines.map(([x, t]) => `<div title="${t}">${x}</div>`).join('');
