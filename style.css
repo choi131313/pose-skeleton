@@ -50,3 +50,13 @@ button.primary{background:var(--accent);border-color:var(--accent);color:#1b1006
 .multi{margin-top:10px;background:#1f2430;border:1px solid var(--line);border-radius:8px;padding:8px 10px}
 .multi summary{cursor:pointer;font-weight:700}
 .angles{display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;margin-top:8px}
+
+.sec2{margin-top:18px!important;padding-top:12px;border-top:1px solid var(--line)}
+textarea{width:100%;background:#252a33;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit;font-size:14px;resize:vertical}
+.aiHistory{margin:4px 0 0;padding-left:16px;font-size:12.5px;color:var(--muted);max-height:120px;overflow:auto}
+.aiSettings{margin-top:8px;background:#1f2430;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px}
+.aiSettings summary{cursor:pointer;font-weight:700}
+.aiSettings a{color:#7cc4ff;font-size:13px}
+.keyInput{width:100%;background:#252a33;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:6px;font-size:13px}
+#aiModel{width:150px;background:#252a33;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px 6px;font-size:13px}
+.keyState{font-size:12px;color:var(--muted);flex:1}

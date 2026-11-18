@@ -20,7 +20,7 @@ const DEFAULT_POSE = [[0,0.62,0.09],[0,0.5,0],[-0.18,0.48,0],[-0.24,0.22,0],[-0.
   [-0.035,0.665,0.07],[0.035,0.665,0.07],[-0.075,0.64,0],[0.075,0.64,0]];
 
 const $ = (id) => document.getElementById(id);
-const state = { people: [], photo: null, landmarker: {}, busy: false };
+export const state = { people: [], photo: null, landmarker: {}, busy: false };
 let pid = 0;
 
 function setStatus(msg, cls='') { const el=$('status'); el.textContent = msg; el.className = 'status ' + cls; }

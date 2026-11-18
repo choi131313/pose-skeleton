@@ -41,6 +41,26 @@
     <div id="status" class="status">사진을 넣어 주세요. 그 전에는 기본 자세로 직접 만들어 볼 수 있어요.</div>
     <div class="photoWrap" hidden><canvas id="photo" width="10" height="10"></canvas></div>
     <div id="people" class="people"></div>
+
+    <h2 class="sec2">또는 말로 포즈 만들기 ✨</h2>
+    <textarea id="aiText" rows="3" placeholder="예) 오른손 들고 몸 왼쪽으로 튼 자세&#10;예) 의자에 앉아 다리를 꼬고 턱을 괸 자세"></textarea>
+    <div class="row">
+      <button id="aiGo" class="primary">만들기</button>
+      <label class="chk" title="체크하면 지금 보이는 포즈를 바탕으로 고쳐요 (예: 왼팔도 들어줘)"><input type="checkbox" id="aiEdit"> 지금 포즈 고치기</label>
+    </div>
+    <div id="aiStatus" class="status"></div>
+    <ul id="aiHistory" class="aiHistory"></ul>
+    <details id="aiSettings" class="aiSettings">
+      <summary>AI 설정 (본인 API 키)</summary>
+      <div class="row"><label>AI
+        <select id="aiProvider"><option value="xai" selected>xAI Grok (기본)</option><option value="openai">OpenAI</option><option value="gemini">Google Gemini</option></select></label>
+        <a id="aiKeyLink" href="#" target="_blank" rel="noopener">키 발급 페이지</a></div>
+      <div class="row"><label>모델 <input id="aiModel" list="aiModels" autocomplete="off" spellcheck="false"></label>
+        <datalist id="aiModels"></datalist><button id="aiReset" title="기본 모델로">기본값</button></div>
+      <div class="row"><input id="aiKey" type="password" autocomplete="off" spellcheck="false" class="keyInput"></div>
+      <div class="row"><span id="aiKeyState" class="keyState"></span><button id="aiClearKey">키 지우기</button></div>
+      <p class="hint">🔑 키는 이 브라우저(이 기기)에만 저장되고, 고른 AI 회사(xAI·OpenAI·Google 중 고른 곳) 서버로만 보내져요. 이 사이트 서버는 없어서 어디에도 따로 저장되지 않아요. 요청할 때마다 키 주인에게 요금이 청구될 수 있어요. 공용 PC에서는 다 쓰고 ‘키 지우기’를 눌러 주세요.</p>
+    </details>
   </section>
 
   <section class="panel viewPanel">
@@ -117,6 +137,7 @@
         <li>손가락과 표정은 만들지 않아요. 몸 18점(코·목·어깨·팔꿈치·손목·골반·무릎·발목·눈·귀)만 있어요.</li>
         <li>사람이 작게 나온 단체 사진은 못 찾을 수 있어요. 한 사람 위주로 잘라서 넣거나 ‘정밀’로 바꿔 보세요.</li>
         <li>여러 명일 때 사람끼리의 앞뒤 거리는 맞추지 않고 옆으로만 배치해요.</li>
+        <li>말로 만든 포즈는 AI가 좌표를 상상해서 만든 거라 좌우나 각도가 틀릴 수 있어요. 돌려 보고 고쳐 주세요.</li>
         <li>실제 사람 사진에서 가장 잘 돼요. 그림·애니 캐릭터는 인식이 안 되거나 부정확할 수 있어요.</li>
       </ul>
     </details>
@@ -124,5 +145,6 @@
 </main>
 <footer class="foot">MediaPipe Pose Landmarker(Apache-2.0) · three.js(MIT) 사용 · posex에서 영감을 받았어요.</footer>
 <script type="module" src="app.js"></script>
+<script type="module" src="ai.js"></script>
 </body>
 </html>

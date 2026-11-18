@@ -16,10 +16,13 @@
 - PNG 저장: 512², 768², 1024², 512×768, 768×1024, 832×1216, 가로형, 사진 비율, 직접 입력
 - 여러 각도 한 번에 저장: 정면·45°·옆·뒤·위·아래 등 체크 → 각도별 PNG(zip) + 한 장에 모은 PNG
 - JSON 저장 / **포즈 파일 불러오기** (아래 형식)
+- **말로 포즈 만들기**: “오른손 들고 몸 왼쪽으로 튼 자세”처럼 적으면 본인 AI API 키(기본 xAI Grok, 선택으로 OpenAI·Google Gemini)로 포즈를 만들어
+  3D 화면에 불러와요. ‘지금 포즈 고치기’를 켜고 “왼팔도 들어줘”처럼 이어서 고칠 수 있어요.
 
 ## 파일 구성
 ```
 index.html  style.css  app.js        웹페이지
+ai.js       말로 포즈 만들기 (xAI / OpenAI / Gemini 직접 호출, 응답 검증·보정)
 vendor/      three.js r170, OrbitControls, @mediapipe/tasks-vision 0.10.21 (wasm 포함)
 models/      pose_landmarker_full.task, pose_landmarker_heavy.task
 render_pose.py  포즈 JSON → OpenPose PNG 명령줄 렌더러 (Python3 + Pillow)
@@ -85,6 +88,23 @@ examples/    standing.json, right_arm_up_twist_left.json
 - yaw 0 = 정면(사진 방향), 90 = 화면 오른쪽(+x)에서 봄(사람의 왼쪽 옆모습), 180 = 뒤, -90 = 화면 왼쪽에서.
 - pitch + = 위에서 내려다봄, − = 아래에서 올려다봄. 원근 투영, 세로 화각 35°.
 
+## 말로 포즈 만들기 (AI)
+- 설정(‘AI 설정’)에서 AI 회사와 모델을 고르고 **본인 API 키**를 넣어요.
+  - **xAI Grok (기본)** 키: https://console.x.ai (기본 모델 `grok-4.7`, `POST https://api.x.ai/v1/chat/completions`,
+    `response_format: json_schema` strict — 거부되면 자동으로 `json_object`로 다시 요청). api.x.ai는 브라우저 CORS를 허용해요(`access-control-allow-origin: *`).
+  - OpenAI 키: https://platform.openai.com/api-keys (기본 모델 `gpt-6.1-terra`, Responses API + `json_schema` strict)
+  - Google Gemini 키: https://aistudio.google.com/apikey (기본 모델 `gemini-flash-latest`, `responseMimeType: application/json` + `responseSchema`)
+- 키는 브라우저 `localStorage`(`poseSkel.ai.key.xai` / `.openai` / `.gemini`)에만 저장되고 고른 회사 API로만 직접 보내져요.
+  이 사이트에는 서버가 없어요. ‘키 지우기’로 저장된 키를 모두 지워요. 저장소에는 키가 들어 있지 않아요.
+- AI에게는 위 좌표계·관절 이름·기준 길이·차렷 자세를 설명하고, 18개 관절을 `{x,y,z}` 객체로 받는 JSON 스키마를 강제해요.
+  ‘지금 포즈 고치기’가 켜져 있으면 현재 포즈(18점 3D 좌표)를 함께 보내요.
+- 받은 응답은 검증·보정해요: 코드펜스/앞뒤 글 제거 → JSON 파싱 → 어깨·골반 4점 필수(없으면 오류) → 빠진 팔다리·목·코·눈·귀 채우기
+  → 몸통(목→골반 가운데)을 0.5m로 크기 맞춤(cm로 와도 됨) → 기준의 0.6~1.5배를 벗어난 뼈는 기준 길이로 고치고 아래쪽 관절을 함께 옮김.
+  JSON이 깨졌거나 이상한 뼈가 4개 이상이면 이유를 알려 주며 **딱 한 번** 다시 요청해요.
+- 오류 안내: 키 오류(401, xAI ‘Incorrect API key’, API_KEY_INVALID), 크레딧 소진(xAI 403 credits/spending limit), 결제·한도 부족(insufficient_quota), 요청 과다·무료 한도(429), 모델 이름 오류(404),
+  서버 오류(5xx), 인터넷 끊김, 거절/안전 차단, 2분 시간 초과.
+- 요금: 요청 1번에 입력 약 2~3천, 출력 약 1~2천 토큰(추론 토큰 별도)이라 grok-4.7(입력 $2/출력 $6 per 1M, 2026-11 기준 docs.x.ai) 기준 한 번에 대략 1~2센트(약 20~30원)예요. 키 주인 계정에 청구돼요.
+
 ## 명령줄 렌더러 `render_pose.py`
 ```bash
 python3 render_pose.py pose.json -o out.png                                  # 정면, 512x768
@@ -105,6 +125,7 @@ python3 render_pose.py pose.json -o outdir/ --angles all --sheet --json-out
 - 작게 나온 사람이 많은 단체 사진은 잘 못 찾아요(정밀 모드가 조금 나음).
 - 여러 명일 때 사람 간 앞뒤 거리는 맞추지 않고 사진 속 가로·세로 위치로만 배치해요.
 - 그림·애니 캐릭터는 인식이 안 되거나 부정확할 수 있어요.
+- 말로 만든 포즈는 AI가 좌표를 상상해서 만든 거라 좌우·각도가 틀릴 수 있어요. 돌려 보고 관절을 끌어 고치세요.
 
 ## 라이선스
 three.js (MIT), MediaPipe Tasks Vision 및 모델 (Apache-2.0).
