@@ -15,6 +15,7 @@ const DEFAULTS = {
   DAILY_LIMIT: '200',
   MAX_FAILS: '5',          // 이만큼 틀리면
   LOCK_SECONDS: '900',     // 이 시간 동안 잠금
+  REASONING_EFFORT: 'low', // grok-4.5~4.7만 적용 (기본 high는 2~3분·7센트 이상 걸려서)
   XAI_URL: 'https://api.x.ai/v1/chat/completions',
 };
 const cfg = (env, k) => (env[k] ?? DEFAULTS[k]) + '';
@@ -82,6 +83,8 @@ function validate(body, env) {
 async function callXai(env, model, messages) {
   const base = { model, messages: [{ role: 'system', content: SYSTEM }, ...messages.map(m => ({ role: m.role, content: m.content }))],
     max_tokens: Math.min(+cfg(env, 'MAX_TOKENS'), 8000) };
+  const effort = cfg(env, 'REASONING_EFFORT');
+  if (/^grok-4\.[5-9]/.test(model) && ['low', 'medium', 'high', 'xhigh'].includes(effort)) base.reasoning_effort = effort;
   const post = (rf) => fetch(cfg(env, 'XAI_URL'), { method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.XAI_API_KEY}` },
     body: JSON.stringify({ ...base, response_format: rf }) });

@@ -7,7 +7,7 @@ const $ = (id) => document.getElementById(id);
 const LS = { provider: 'poseSkel.ai.provider', model: (p) => `poseSkel.ai.model.${p}`, key: (p) => `poseSkel.ai.key.${p}` };
 export const PROVIDERS = {
   ...(WORKER_URL ? { server: { name: '내 서버 (비밀번호)', defaultModel: '', models: [], keyUrl: '', keyHint: '' } } : {}),
-  xai: { name: 'xAI Grok', defaultModel: 'grok-4.7', models: ['grok-4.7', 'grok-4.3', 'grok-4.20-0309-non-reasoning', 'grok-4.20-0309-reasoning'],
+  xai: { name: 'xAI Grok', defaultModel: 'grok-4.7', models: ['grok-4.7', 'grok-4.20-0309-non-reasoning', 'grok-4.3', 'grok-4.20-0309-reasoning'],
     keyUrl: 'https://console.x.ai', keyHint: 'xai-로 시작해요' },
   openai: { name: 'OpenAI', defaultModel: 'gpt-6.1-terra', models: ['gpt-6.1-terra', 'gpt-6-luna', 'gpt-5.4-mini', 'gpt-5-mini', 'gpt-4.1-mini', 'gpt-4o-mini'],
     keyUrl: 'https://platform.openai.com/api-keys', keyHint: 'sk-로 시작해요' },
@@ -163,7 +163,7 @@ async function callOpenAI({ key, model, messages, signal }) {
 }
 async function callXai({ key, model, messages, signal }) {
   const url = 'https://api.x.ai/v1/chat/completions';
-  const base = { model, messages: messages.map(m => ({ role: m.role, content: m.content })) };
+  const base = { model, messages: messages.map(m => ({ role: m.role, content: m.content })), ...(/^grok-4\.[5-9]/.test(model) ? { reasoning_effort: 'low' } : {}) };
   let { status, data } = await postJson(url, { Authorization: `Bearer ${key}` }, { ...base,
     response_format: { type: 'json_schema', json_schema: { name: 'pose', schema: SCHEMA, strict: true } } }, signal);
   const em = String(typeof data?.error === 'string' ? data.error : data?.error?.message || '').toLowerCase();
@@ -270,8 +270,8 @@ function init() {
     if (!k) { $('aiSettings').open = true; setAi(p === 'server' ? '먼저 설정에 비밀번호를 넣어 주세요.' : `먼저 설정에서 ${PROVIDERS[p].name} API 키를 넣어 주세요.`, 'err'); key.focus(); return; }
     const m = model.value.trim() || PROVIDERS[p].defaultModel;
     const current = $('aiEdit').checked && state.people.length ? currentPoseForPrompt() : null;
-    busy = true; ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 120000);
-    $('aiGo').textContent = '멈추기'; setAi(current ? '지금 포즈를 고치는 중이에요…' : '포즈를 만드는 중이에요… (10~40초쯤 걸릴 수 있어요)');
+    busy = true; ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 180000);
+    $('aiGo').textContent = '멈추기'; setAi(current ? '지금 포즈를 고치는 중이에요…' : '포즈를 만드는 중이에요… (보통 20초~1분, 길면 2분쯤 걸려요)');
     try {
       const res = await generatePose({ provider: p, key: k, model: m, text, current, signal: ctrl.signal, onRetry: () => setAi('응답이 이상해서 한 번 더 요청하는 중이에요…') });
       loadPoseJson(toPoseFile(res, { yaw_deg: 20, pitch_deg: 8 }));

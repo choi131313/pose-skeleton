@@ -28,7 +28,7 @@ let L = await last();
 ok(L.last.auth === 'Bearer test-upstream-key-NOT-REAL', 'worker sends secret key upstream');
 ok(L.last.body.messages[0].role === 'system' && L.last.body.messages[0].content.startsWith('You convert'), 'server-fixed system prompt prepended');
 ok(L.last.body.response_format.type === 'json_schema' && L.last.body.response_format.json_schema.strict, 'forced json_schema');
-ok(L.last.body.max_tokens === 6000 && L.last.body.model === 'grok-4.7', 'max_tokens cap & default model', JSON.stringify([L.last.body.max_tokens, L.last.body.model]));
+ok(L.last.body.max_tokens === 6000 && L.last.body.model === 'grok-4.7' && L.last.body.reasoning_effort === 'low', 'max_tokens cap & default model & reasoning_effort low', JSON.stringify([L.last.body.max_tokens, L.last.body.model]));
 ok(!JSON.stringify(x.j).includes('test-upstream-key'), 'key never in response');
 
 // 클라이언트가 system 끼워넣기 / max_tokens 키우기 시도
@@ -40,7 +40,7 @@ L = await last(); ok(x.s === 200 && L.last.body.max_tokens === 6000 && !L.last.b
 x = await post({ password: PW, model: 'grok-4.7-heavy-expensive', messages: msg('x') });
 ok(x.s === 400 && x.j.error === 'model_not_allowed', 'non-allowlisted model rejected', x.j?.error);
 x = await post({ password: PW, model: 'grok-4.3', messages: msg('앉기') }); L = await last();
-ok(x.s === 200 && L.last.body.model === 'grok-4.3', 'allowlisted model passes');
+ok(x.s === 200 && L.last.body.model === 'grok-4.3' && L.last.body.reasoning_effort === undefined, 'allowlisted model passes (no reasoning_effort for grok-4.3)');
 // 길이 상한
 x = await post({ password: PW, messages: msg('가'.repeat(13000)) });
 ok(x.s === 413 && x.j.error === 'too_large', 'oversized input rejected', x.s);

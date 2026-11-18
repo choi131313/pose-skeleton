@@ -17,6 +17,11 @@ In the neutral orientation the person FACES +z (toward the camera), so the perso
 Origin: mid-point of the hips at (0,0,0). Feet are on the ground (ankles near y=-0.82 when standing straight; lower when crouching the hips drop instead — keep ankles at the lowest point).
 Typical adult proportions (keep these lengths!): neck→mid-hip 0.50, neck→each shoulder 0.18, upper arm 0.27, forearm 0.25, mid-hip→each hip 0.10, thigh 0.42, shin 0.40, neck→nose 0.15, eyes 0.035 beside the nose midline and 0.045 above it, ears 0.075 to each side of the head center.
 Reference standing pose (arms down): ${JSON.stringify(REF)}
+Directions: the person's FRONT (where the face/chest/knees point) is +z, their back is -z. "앞으로" = +z, "뒤로" = -z.
+Reference SITTING on a chair (hips at origin, thighs horizontal, shins vertical): r_hip (-0.1,0,0), r_knee (-0.11,0.02,0.42), r_ankle (-0.12,-0.38,0.44), l_hip (0.1,0,0), l_knee (0.11,0.02,0.42), l_ankle (0.12,-0.38,0.44); torso upright (neck about (0,0.5,-0.03)). The seat is at hip height; the floor is about y=-0.45.
+Crossed legs while sitting (오른다리를 위로 꼼): r_knee rests on top of the left knee: r_knee about (0.0,0.12,0.40), r_ankle hangs on the other side about (0.14,-0.22,0.50); the left leg stays as in the sitting reference.
+Running: torso leans forward ~10-15°, one thigh swings forward and up (knee about 0.25 in front, 0.2 below the hip), the other leg is behind (ankle about 0.3-0.45 behind and lifted), elbows bent ~90°, arms swing OPPOSITE to the legs (left leg forward → right arm forward).
+Self-check before answering: every bone length matches the proportions above; r_* joints belong to the person's right side; joints the instruction does not mention stay natural.
 Rules: output ONLY the JSON object matching the schema. Every person must have all 18 keypoints as {x,y,z}. Keep the body anatomically plausible (elbows/knees bend the natural way, no limb stretching). Eyes/ears/nose follow the head direction.
 If several people are requested, place them side by side about 0.8 m apart in x, each with its own hips (do not overlap them).
 "description_ko": one short polite Korean sentence (존댓말) describing what you made.`;

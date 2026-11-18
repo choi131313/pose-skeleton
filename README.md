@@ -106,7 +106,9 @@ examples/    standing.json, right_arm_up_twist_left.json
   JSON이 깨졌거나 이상한 뼈가 4개 이상이면 이유를 알려 주며 **딱 한 번** 다시 요청해요.
 - 오류 안내: 키 오류(401, xAI ‘Incorrect API key’, API_KEY_INVALID), 크레딧 소진(xAI 403 credits/spending limit), 결제·한도 부족(insufficient_quota), 요청 과다·무료 한도(429), 모델 이름 오류(404),
   서버 오류(5xx), 인터넷 끊김, 거절/안전 차단, 2분 시간 초과.
-- 요금: 요청 1번에 입력 약 2~3천, 출력 약 1~2천 토큰(추론 토큰 별도)이라 grok-4.7(입력 $2/출력 $6 per 1M, 2026-11 기준 docs.x.ai) 기준 한 번에 대략 1~2센트(약 20~30원)예요. 키 주인 계정에 청구돼요.
+- 요금·속도 (2026-11-18 실제 측정, grok-4.7, `reasoning_effort: low`): 요청 1번에 약 **1.3~3.6센트(약 20~50원)**, **20초~75초**.
+  기본값(high)으로 두면 약 7센트·160초가 걸려서 페이지와 서버 모두 grok-4.5~4.7에는 `low`를 붙여요.
+  `grok-4.20-0309-non-reasoning`은 약 0.3센트·3~4초로 빠르고 싸지만 앉은 자세 등에서 결과가 눈에 띄게 엉성했어요.
 
 ## 키 없이 쓰기: ‘내 서버 (비밀번호)’ — Cloudflare Worker
 
@@ -119,7 +121,7 @@ Grok 키를 작은 Cloudflare Worker(`worker/`) 안에 숨겨 두고, 페이지�
 - 시스템 프롬프트와 포즈 JSON 스키마를 **서버가 고정**해서 붙여요 → 일반 Grok 채팅으로는 못 써요.
   클라이언트가 보낸 system 메시지·tools·max_tokens 등은 거절하거나 무시해요.
 - 모델 허용 목록(`ALLOWED_MODELS`), 출력 상한 `MAX_TOKENS`(6000), 입력 상한 `MAX_INPUT_CHARS`(12000자), 메시지 4개 이하, 본문 64KB 이하.
-- 하루 요청 상한 `DAILY_LIMIT`(기본 200번, 한국 시간 자정에 초기화, 0이면 무제한). grok-4.7 기준 하루 최대 대략 2~4달러 이내로 묶여요(추정).
+- 하루 요청 상한 `DAILY_LIMIT`(기본 200번, 한국 시간 자정에 초기화, 0이면 무제한). 실측 기준(요청당 약 2~4센트) 하루 최대 대략 4~8달러 이내로 묶여요.
 - 키·비밀번호·요청 내용은 로그에 남기지 않아요.
 - 잠금·하루 상한은 KV에 저장해요(KV를 안 붙이면 서버 인스턴스별 메모리라 느슨해요). KV는 몇 초 늦게 반영될 수 있어서 상한을 몇 번 넘길 수는 있어요.
 
@@ -161,7 +163,7 @@ cd worker && npm install
 node test/mock-xai.mjs &                       # 가짜 xAI (9999)
 printf 'XAI_API_KEY=test\nPAGE_PASSWORD=correct-horse-battery\nXAI_URL=http://127.0.0.1:9999/v1/chat/completions\nDAILY_LIMIT=6\nMAX_FAILS=3\n' > .dev.vars
 npx wrangler dev -c wrangler.test.toml --port 8787 &   # KV 포함 (기본 wrangler.toml로 하면 메모리 모드)
-node test/worker.test.mjs                      # 29개 항목
+node test/worker.test.mjs                      # 29개 항목 (다시 돌릴 땐 먼저 rm -rf .wrangler/state)
 ```
 
 **서버 API** — `POST /v1/pose` `{"password": "...", "messages": [{"role":"user","content":"..."}], "model"?: "grok-4.7"}`
