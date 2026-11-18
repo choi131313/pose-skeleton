@@ -148,6 +148,6 @@ export default {
     const choice = up.data?.choices?.[0];
     const c = choice?.message?.content;
     return json({ content: Array.isArray(c) ? c.map(x => x.text || '').join('') : (c || ''), refusal: choice?.message?.refusal || null,
-      finish_reason: choice?.finish_reason || null, model, used_today: used, daily_limit: limit }, 200, ch);
+      finish_reason: choice?.finish_reason || null, model, usage: up.data?.usage || null, used_today: used, daily_limit: limit }, 200, ch);
   },
 };
