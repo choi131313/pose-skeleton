@@ -1,4 +1,4 @@
-// 말로 포즈 만들기 — 사용자 본인의 API 키로 OpenAI / Gemini를 브라우저에서 직접 호출
+// 말로 포즈 만들기 — 사용자 본인의 API 키로 xAI Grok(기본) / OpenAI / Gemini를 브라우저에서 직접 호출
 import { loadPoseJson, buildJson, NAMES, state } from './app.js';
 
 const $ = (id) => document.getElementById(id);
@@ -165,7 +165,11 @@ async function callOpenAI({ key, model, messages, signal }) {
   const body = { model, input: messages.map(m => ({ role: m.role === 'system' ? 'developer' : m.role, content: m.content })),
     text: { format: { type: 'json_schema', name: 'pose', schema: SCHEMA, strict: true } } };
   if (reasoningModel(model)) body.reasoning = { effort: 'low' };
-  const { status, data } = await postJson('https://api.openai.com/v1/responses', { Authorization: `Bearer ${key}` }, body, signal);
+  let status, data;
+  try { ({ status, data } = await postJson('https://api.openai.com/v1/responses', { Authorization: `Bearer ${key}` }, body, signal)); }
+  catch (e) { // OpenAI는 키 오류(401) 응답에 CORS 헤더가 없어 브라우저에선 연결 실패처럼 보여요
+    if (e.kind === 'network') throw new ApiError('OpenAI에 연결하지 못했어요. API 키가 맞는지, 인터넷이 연결돼 있는지 확인해 주세요.', 'network');
+    throw e; }
   if (status !== 200) throw friendlyError('openai', status, data);
   if (data?.status === 'incomplete') throw new PoseError('응답이 중간에 끊김');
   const parts = (data?.output || []).flatMap(o => o.content || []);

@@ -92,7 +92,7 @@ examples/    standing.json, right_arm_up_twist_left.json
 - 설정(‘AI 설정’)에서 AI 회사와 모델을 고르고 **본인 API 키**를 넣어요.
   - **xAI Grok (기본)** 키: https://console.x.ai (기본 모델 `grok-4.7`, `POST https://api.x.ai/v1/chat/completions`,
     `response_format: json_schema` strict — 거부되면 자동으로 `json_object`로 다시 요청). api.x.ai는 브라우저 CORS를 허용해요(`access-control-allow-origin: *`).
-  - OpenAI 키: https://platform.openai.com/api-keys (기본 모델 `gpt-6.1-terra`, Responses API + `json_schema` strict)
+  - OpenAI 키: https://platform.openai.com/api-keys (주의: OpenAI는 키 오류 응답에 CORS 헤더가 없어 브라우저에선 ‘연결 실패’로 보여요) (기본 모델 `gpt-6.1-terra`, Responses API + `json_schema` strict)
   - Google Gemini 키: https://aistudio.google.com/apikey (기본 모델 `gemini-flash-latest`, `responseMimeType: application/json` + `responseSchema`)
 - 키는 브라우저 `localStorage`(`poseSkel.ai.key.xai` / `.openai` / `.gemini`)에만 저장되고 고른 회사 API로만 직접 보내져요.
   이 사이트에는 서버가 없어요. ‘키 지우기’로 저장된 키를 모두 지워요. 저장소에는 키가 들어 있지 않아요.
