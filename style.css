@@ -1,0 +1,52 @@
+:root{--bg:#111318;--panel:#1b1e25;--line:#2c313b;--text:#e8eaf0;--muted:#9aa1ad;--accent:#ff8a3d;}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;font-size:15px}
+.top{padding:14px 18px 4px}
+.top h1{margin:0;font-size:22px}
+.sub{margin:4px 0 0;color:var(--muted)}
+.layout{display:grid;grid-template-columns:300px 1fr 300px;gap:12px;padding:12px 18px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;min-width:0}
+.panel h2{font-size:16px;margin:0 0 10px}
+.drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border:2px dashed #4a5160;border-radius:10px;padding:18px 8px;cursor:pointer;text-align:center}
+.drop.over{border-color:var(--accent);background:#2a2018}
+.drop-big{font-size:17px;font-weight:600}
+.drop-small{font-size:12px;color:var(--muted)}
+.privacy{font-size:12.5px;color:#8fd19e;margin:8px 0}
+.row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin:8px 0}
+label{font-size:13.5px;color:var(--muted);display:inline-flex;align-items:center;gap:6px}
+select,input[type=number]{background:#252a33;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px 6px;font-size:13.5px}
+input[type=number]{width:72px}
+button{background:#2a303b;color:var(--text);border:1px solid #3a414e;border-radius:7px;padding:7px 10px;font-size:13.5px;cursor:pointer}
+button:hover{background:#343b48}
+button.primary{background:var(--accent);border-color:var(--accent);color:#1b1006;font-weight:700}
+.chk{color:var(--text)}
+.status{font-size:13px;color:var(--muted);margin:8px 0;min-height:1.4em}
+.status.err{color:#ff7b7b}
+.status.ok{color:#8fd19e}
+.photoWrap canvas{width:100%;height:auto;border-radius:8px;background:#000;display:block}
+.people{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.people .chip{display:inline-flex;align-items:center;gap:4px;background:#252a33;border:1px solid var(--line);border-radius:999px;padding:3px 4px 3px 10px;font-size:12.5px}
+.people .chip button{padding:1px 7px;border-radius:999px;font-size:12px}
+.toolbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px}
+.viewWrap{position:relative;width:100%;height:min(72vh,720px);border-radius:10px;overflow:hidden;background:#000;touch-action:none}
+#view{width:100%;height:100%;display:block}
+.frame{position:absolute;border:1.5px dashed rgba(255,255,255,.55);pointer-events:none}
+.frame span{position:absolute;top:-1px;left:-1px;font-size:11px;background:rgba(255,255,255,.55);color:#000;padding:1px 5px}
+.loading{position:absolute;inset:0;background:rgba(0,0,0,.6);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}
+.loading[hidden]{display:none}
+.spinner{width:34px;height:34px;border:4px solid #555;border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.hint{font-size:12px;color:var(--muted);margin:8px 0 0;line-height:1.5}
+.outPreview{display:block;width:100%;max-height:340px;object-fit:contain;background:#000;border:1px solid var(--line);border-radius:8px;margin:8px 0}
+.custom{font-size:13px;color:var(--muted)}
+.custom[hidden]{display:none}
+.limits{margin-top:12px;font-size:13px;background:#232017;border:1px solid #4a3f22;border-radius:8px;padding:8px 10px}
+.limits summary{cursor:pointer;font-weight:700;color:#ffd27a}
+.limits ul{margin:6px 0 0;padding-left:18px;line-height:1.55}
+.foot{color:#6b7280;font-size:11.5px;text-align:center;padding:6px 0 16px}
+@media (max-width:1100px){.layout{grid-template-columns:1fr 1fr}.viewPanel{grid-column:1/-1;order:-1}}
+@media (max-width:700px){.layout{grid-template-columns:1fr;padding:8px}.viewPanel{order:0}.viewWrap{height:62vh}.top{padding:10px 10px 0}.top h1{font-size:19px}}
+
+.multi{margin-top:10px;background:#1f2430;border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.multi summary{cursor:pointer;font-weight:700}
+.angles{display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;margin-top:8px}

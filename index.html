@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>포즈 뼈대 만들기 · 사진으로 3D 포즈 레퍼런스</title>
+<meta name="description" content="사진을 넣으면 기기 안에서 3D 포즈 뼈대를 만들어 OpenPose(ControlNet) PNG로 저장해 드려요.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦴</text></svg>">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
+</head>
+<body>
+<header class="top">
+  <h1>🦴 포즈 뼈대 만들기</h1>
+  <p class="sub">사진을 넣으면 사람 자세를 읽어 3D 뼈대로 보여 드려요. 돌려 보고 원하는 각도에서 OpenPose 스타일 PNG로 저장하세요.</p>
+</header>
+
+<main class="layout">
+  <section class="panel" id="leftPanel">
+    <h2>1. 사진 넣기</h2>
+    <label id="drop" class="drop" tabindex="0">
+      <input id="file" type="file" accept="image/*" hidden>
+      <span class="drop-big">📷 사진 고르기</span>
+      <span class="drop-small">또는 여기로 끌어다 놓기 · 붙여넣기(Ctrl+V)</span>
+    </label>
+    <div class="row"><button id="importBtn">📂 포즈 파일 불러오기 (JSON)</button><input id="importFile" type="file" accept=".json,application/json" hidden></div>
+    <p class="privacy">🔒 사진은 이 기기 안에서만 분석돼요. 어디에도 올라가지 않아요.</p>
+    <div class="row">
+      <label>정밀도
+        <select id="model">
+          <option value="full" selected>보통 (빠름)</option>
+          <option value="heavy">정밀 (느림 · 처음에 30MB 받음)</option>
+        </select>
+      </label>
+      <label>최대 인원
+        <select id="numPoses">
+          <option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option>
+        </select>
+      </label>
+    </div>
+    <div id="status" class="status">사진을 넣어 주세요. 그 전에는 기본 자세로 직접 만들어 볼 수 있어요.</div>
+    <div class="photoWrap" hidden><canvas id="photo" width="10" height="10"></canvas></div>
+    <div id="people" class="people"></div>
+  </section>
+
+  <section class="panel viewPanel">
+    <h2>2. 3D로 돌려 보기</h2>
+    <div class="toolbar">
+      <button data-view="front" title="사진을 찍은 방향">정면</button>
+      <button data-view="right">오른쪽에서</button>
+      <button data-view="back">뒤에서</button>
+      <button data-view="left">왼쪽에서</button>
+      <button data-view="top">위에서</button>
+      <button id="resetView">시점 초기화</button>
+      <button id="resetPose">포즈 되돌리기</button>
+      <label class="chk"><input type="checkbox" id="grid" checked> 바닥</label>
+      <label class="chk"><input type="checkbox" id="editJoints" checked> 관절 끌기</label>
+    </div>
+    <div id="viewWrap" class="viewWrap">
+      <canvas id="view"></canvas>
+      <div id="frame" class="frame"><span id="frameLabel"></span></div>
+      <div id="loading" class="loading" hidden><div class="spinner"></div><span id="loadingText">분석 중…</span></div>
+    </div>
+    <p class="hint">한 손가락/왼쪽 버튼: 회전 · 두 손가락/휠: 확대 · 오른쪽 버튼/두 손가락 끌기: 이동 · 관절(점)을 끌면 자세를 고칠 수 있어요. 점선 상자 안이 저장되는 범위예요.</p>
+  </section>
+
+  <section class="panel">
+    <h2>3. 저장하기</h2>
+    <div class="row">
+      <label>크기
+        <select id="size">
+          <option value="512x512">512 × 512 (정사각)</option>
+          <option value="768x768">768 × 768 (정사각)</option>
+          <option value="1024x1024">1024 × 1024 (정사각)</option>
+          <option value="512x768" selected>512 × 768 (세로)</option>
+          <option value="768x1024">768 × 1024 (세로)</option>
+          <option value="832x1216">832 × 1216 (세로, SDXL)</option>
+          <option value="768x512">768 × 512 (가로)</option>
+          <option value="1024x768">1024 × 768 (가로)</option>
+          <option value="1216x832">1216 × 832 (가로, SDXL)</option>
+          <option value="photo">사진 비율 (긴 변 1024)</option>
+          <option value="custom">직접 입력</option>
+        </select>
+      </label>
+      <span id="customWrap" class="custom" hidden>
+        <input id="cw" type="number" min="64" max="4096" step="8" value="640"> ×
+        <input id="ch" type="number" min="64" max="4096" step="8" value="960">
+      </span>
+    </div>
+    <div class="row">
+      <label>선 두께 <input id="thick" type="range" min="0.5" max="3" step="0.25" value="1"></label>
+      <label class="chk"><input type="checkbox" id="face" checked> 얼굴 점(눈·귀)</label>
+      <label class="chk"><input type="checkbox" id="hideLow"> 잘 안 보이는 관절 빼기</label>
+    </div>
+    <canvas id="outPreview" class="outPreview" width="10" height="10"></canvas>
+    <div class="row">
+      <button id="savePng" class="primary">PNG 저장</button>
+      <button id="saveJson">JSON 저장 (OpenPose 형식)</button>
+    </div>
+    <details class="multi" id="multiBox">
+      <summary>여러 각도 한 번에 저장</summary>
+      <div class="angles" id="angles"></div>
+      <div class="row">
+        <label class="chk"><input type="checkbox" id="multiZip" checked> 각도별 PNG (zip 한 파일)</label>
+        <label class="chk"><input type="checkbox" id="multiSheet" checked> 한 장에 모아 보기 PNG</label>
+      </div>
+      <div class="row"><button id="saveMulti" class="primary">선택한 각도 저장</button></div>
+      <p class="hint">각도는 사람 정면(사진 찍은 방향) 기준이고, ‘오른쪽’은 정면에서 봤을 때 화면 오른쪽에서 본다는 뜻이에요. 모든 각도에서 같은 크기로 보이도록 자동으로 화면에 맞춰요. ‘모아 보기’ 그림에는 각도 이름이 적혀 있어서 ControlNet에는 각도별 PNG를 쓰세요.</p>
+    </details>
+    <p class="hint">검은 배경에 OpenPose 18점(COCO) 색깔 뼈대라서 ControlNet(openpose) 같은 곳에 그대로 넣을 수 있어요. 이때 전처리기(preprocessor)는 ‘없음(none)’으로 두세요.</p>
+
+    <details class="limits" open>
+      <summary>꼭 알아 두세요 (한계)</summary>
+      <ul>
+        <li>사진 한 장으로 깊이(앞뒤 거리)를 <b>추정</b>하는 거라 옆이나 뒤에서 보면 실제와 다를 수 있어요.</li>
+        <li>가려진 팔다리, 화면 밖으로 잘린 부분, 몸 뒤로 간 손은 틀리게 나올 수 있어요. 관절을 끌어서 고쳐 주세요.</li>
+        <li>손가락과 표정은 만들지 않아요. 몸 18점(코·목·어깨·팔꿈치·손목·골반·무릎·발목·눈·귀)만 있어요.</li>
+        <li>사람이 작게 나온 단체 사진은 못 찾을 수 있어요. 한 사람 위주로 잘라서 넣거나 ‘정밀’로 바꿔 보세요.</li>
+        <li>여러 명일 때 사람끼리의 앞뒤 거리는 맞추지 않고 옆으로만 배치해요.</li>
+        <li>실제 사람 사진에서 가장 잘 돼요. 그림·애니 캐릭터는 인식이 안 되거나 부정확할 수 있어요.</li>
+      </ul>
+    </details>
+  </section>
+</main>
+<footer class="foot">MediaPipe Pose Landmarker(Apache-2.0) · three.js(MIT) 사용 · posex에서 영감을 받았어요.</footer>
+<script type="module" src="app.js"></script>
+</body>
+</html>
