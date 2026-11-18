@@ -1,9 +1,12 @@
 // 말로 포즈 만들기 — 사용자 본인의 API 키로 xAI Grok(기본) / OpenAI / Gemini를 브라우저에서 직접 호출
-import { loadPoseJson, buildJson, NAMES, state } from './app.js';
+import { loadPoseJson, buildJson, state } from './app.js';
+import { NAMES, REF, SCHEMA, SYSTEM } from './pose-prompt.js';
+import { WORKER_URL } from './config.js';
 
 const $ = (id) => document.getElementById(id);
 const LS = { provider: 'poseSkel.ai.provider', model: (p) => `poseSkel.ai.model.${p}`, key: (p) => `poseSkel.ai.key.${p}` };
 export const PROVIDERS = {
+  ...(WORKER_URL ? { server: { name: '내 서버 (비밀번호)', defaultModel: '', models: [], keyUrl: '', keyHint: '' } } : {}),
   xai: { name: 'xAI Grok', defaultModel: 'grok-4.7', models: ['grok-4.7', 'grok-4.3', 'grok-4.20-0309-non-reasoning', 'grok-4.20-0309-reasoning'],
     keyUrl: 'https://console.x.ai', keyHint: 'xai-로 시작해요' },
   openai: { name: 'OpenAI', defaultModel: 'gpt-6.1-terra', models: ['gpt-6.1-terra', 'gpt-6-luna', 'gpt-5.4-mini', 'gpt-5-mini', 'gpt-4.1-mini', 'gpt-4o-mini'],
@@ -13,9 +16,6 @@ export const PROVIDERS = {
 };
 
 // ---------- 기준 자세 / 뼈 길이 ----------
-const REF = { nose:[0,0.62,0.09], neck:[0,0.5,0], r_shoulder:[-0.18,0.48,0], r_elbow:[-0.24,0.22,0], r_wrist:[-0.26,-0.03,0.03],
-  l_shoulder:[0.18,0.48,0], l_elbow:[0.24,0.22,0], l_wrist:[0.26,-0.03,0.03], r_hip:[-0.1,0,0], r_knee:[-0.11,-0.42,0.01], r_ankle:[-0.12,-0.82,-0.03],
-  l_hip:[0.1,0,0], l_knee:[0.11,-0.42,0.01], l_ankle:[0.12,-0.82,-0.03], r_eye:[-0.035,0.665,0.07], l_eye:[0.035,0.665,0.07], r_ear:[-0.075,0.64,0], l_ear:[0.075,0.64,0] };
 // [부모, 자식] — 부모부터 순서대로 고치고, 자식 쪽은 통째로 따라 움직임
 const BONES = [['mid_hip','r_hip'],['mid_hip','l_hip'],['r_hip','r_knee'],['r_knee','r_ankle'],['l_hip','l_knee'],['l_knee','l_ankle'],
   ['neck','r_shoulder'],['r_shoulder','r_elbow'],['r_elbow','r_wrist'],['neck','l_shoulder'],['l_shoulder','l_elbow'],['l_elbow','l_wrist'],['neck','nose']];
@@ -105,26 +105,10 @@ export function toPoseFile(res, view) {
 }
 
 // ---------- 프롬프트 / 스키마 ----------
-const JOINT_SCHEMA = { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, z: { type: 'number' } }, required: ['x','y','z'], additionalProperties: false };
-export const SCHEMA = { type: 'object', additionalProperties: false, required: ['description_ko', 'people'], properties: {
-  description_ko: { type: 'string' },
-  people: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['keypoints'], properties: {
-    keypoints: { type: 'object', additionalProperties: false, required: NAMES, properties: Object.fromEntries(NAMES.map(n => [n, JOINT_SCHEMA])) } } } } } };
 const toGemini = (s) => { // OpenAPI 하위집합(대문자 타입, additionalProperties 없음)
   const o = { type: s.type.toUpperCase() };
   if (s.properties) { o.properties = Object.fromEntries(Object.entries(s.properties).map(([k, x]) => [k, toGemini(x)])); o.propertyOrdering = Object.keys(s.properties); }
   if (s.required) o.required = s.required; if (s.items) o.items = toGemini(s.items); return o; };
-
-const SYSTEM = `You convert a natural-language description (usually Korean) of a human body pose into 3D joint coordinates for a pose-reference tool (OpenPose COCO-18 skeleton).
-Coordinate system: meters, right-handed. +y is UP, +x is the viewer's right in the front view, +z points toward the front camera (out of the screen).
-In the neutral orientation the person FACES +z (toward the camera), so the person's RIGHT side is at -x and LEFT side is at +x.
-"오른손/오른팔/오른쪽" always means the PERSON's right (r_*), not the viewer's. "몸을 왼쪽으로 튼다" = rotate the upper body about the vertical axis toward the person's left (the chest turns toward +x).
-Origin: mid-point of the hips at (0,0,0). Feet are on the ground (ankles near y=-0.82 when standing straight; lower when crouching the hips drop instead — keep ankles at the lowest point).
-Typical adult proportions (keep these lengths!): neck→mid-hip 0.50, neck→each shoulder 0.18, upper arm 0.27, forearm 0.25, mid-hip→each hip 0.10, thigh 0.42, shin 0.40, neck→nose 0.15, eyes 0.035 beside the nose midline and 0.045 above it, ears 0.075 to each side of the head center.
-Reference standing pose (arms down): ${JSON.stringify(REF)}
-Rules: output ONLY the JSON object matching the schema. Every person must have all 18 keypoints as {x,y,z}. Keep the body anatomically plausible (elbows/knees bend the natural way, no limb stretching). Eyes/ears/nose follow the head direction.
-If several people are requested, place them side by side about 0.8 m apart in x, each with its own hips (do not overlap them).
-"description_ko": one short polite Korean sentence (존댓말) describing what you made.`;
 
 function userMessage(text, current) {
   if (current) return `Current pose (edit THIS pose; keep everything that the instruction does not mention unchanged):\n${JSON.stringify(current)}\n\nInstruction: ${text}`;
@@ -193,6 +177,34 @@ async function callXai({ key, model, messages, signal }) {
   const c = ch?.message?.content;
   return Array.isArray(c) ? c.map(x => x.text || '').join('') : (c || '');
 }
+async function callServer({ key, messages, signal }) {
+  const base = WORKER_URL.replace(/\/+$/, '');
+  let status, data;
+  try { ({ status, data } = await postJson(base + '/v1/pose', {}, { password: key, messages: messages.filter(m => m.role !== 'system').map(m => ({ role: m.role, content: m.content })) }, signal)); }
+  catch (e) { if (e.kind === 'network') throw new ApiError('포즈 서버에 연결하지 못했어요. 인터넷을 확인하거나 잠시 후 다시 해 주세요.', 'server_down'); throw e; }
+  if (status === 200 && data) {
+    if (data.refusal) throw new ApiError('AI가 이 요청을 거절했어요. 다르게 표현해 보세요.', 'refusal');
+    return data.content || '';
+  }
+  const code = data?.error;
+  const M = {
+    bad_password: [`비밀번호가 틀렸어요.${data?.remaining != null ? ` (남은 기회 ${data.remaining}번)` : ''} 설정에서 다시 넣어 주세요.`, 'password'],
+    locked: [`비밀번호를 여러 번 틀려서 ${Math.round((data?.retry_after || 900) / 60)}분 동안 잠겼어요. 잠시 후 다시 해 주세요.`, 'locked'],
+    daily_limit: [`오늘 쓸 수 있는 횟수(${data?.limit ?? ''}번)를 다 썼어요. 내일 다시 해 주세요.`, 'daily'],
+    no_credits: ['Grok 크레딧이 다 떨어졌어요. console.x.ai에서 충전한 뒤 다시 해 주세요.', 'quota'],
+    upstream_auth: ['서버에 넣어 둔 xAI 키가 올바르지 않아요. 서버 설정(XAI_API_KEY)을 확인해 주세요.', 'auth'],
+    upstream_rate: ['Grok 요청이 너무 많아요. 잠시 후 다시 해 주세요.', 'rate'],
+    upstream_down: ['Grok 서버에 연결하지 못했어요. 잠시 후 다시 해 주세요.', 'server'],
+    upstream_error: ['Grok 쪽에서 오류가 났어요. 잠시 후 다시 해 주세요.', 'server'],
+    not_configured: ['포즈 서버 설정이 아직 끝나지 않았어요 (키·비밀번호 미설정).', 'server'],
+    too_large: ['설명이 너무 길어요. 조금 짧게 써 주세요.', 'too_large'],
+    bad_origin: ['이 주소에서는 포즈 서버를 쓸 수 없어요.', 'origin'],
+    model_not_allowed: ['서버에서 허용하지 않은 모델이에요.', 'model'],
+  };
+  if (M[code]) throw new ApiError(...M[code]);
+  if (status >= 500 || !status) throw new ApiError('포즈 서버에 문제가 있어요. 잠시 후 다시 해 주세요.', 'server_down');
+  throw new ApiError(`요청이 실패했어요 (${status}${code ? ' · ' + code : ''}).`, 'other');
+}
 async function callGemini({ key, model, messages, signal }) {
   const sys = messages.filter(m => m.role === 'system').map(m => m.content).join('\n');
   const contents = messages.filter(m => m.role !== 'system').map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
@@ -207,7 +219,7 @@ async function callGemini({ key, model, messages, signal }) {
 }
 
 export async function generatePose({ provider, key, model, text, current, signal, onRetry }) {
-  const call = { xai: callXai, gemini: callGemini, openai: callOpenAI }[provider] || callXai;
+  const call = { server: callServer, xai: callXai, gemini: callGemini, openai: callOpenAI }[provider] || callXai;
   const messages = [{ role: 'system', content: SYSTEM }, { role: 'user', content: userMessage(text, current) }];
   let reply = await call({ key, model, messages, signal }), res, problem;
   try { res = sanitizeReply(reply); if (res.badBones > 3) problem = `Several limb lengths were implausible (${res.fixes.filter(f => f.includes('길이')).join('; ')}).`; }
@@ -226,19 +238,28 @@ export async function generatePose({ provider, key, model, text, current, signal
 // ---------- UI ----------
 function init() {
   const prov = $('aiProvider'), model = $('aiModel'), key = $('aiKey'), dl = $('aiModels');
+  if (WORKER_URL && !prov.querySelector('option[value=server]')) {
+    const o = document.createElement('option'); o.value = 'server'; o.textContent = '내 서버 (비밀번호) · 키 필요 없음'; prov.prepend(o);
+  }
   const load = () => {
-    const p = prov.value, P = PROVIDERS[p];
-    model.value = localStorage.getItem(LS.model(p)) || P.defaultModel; model.placeholder = P.defaultModel;
-    key.value = localStorage.getItem(LS.key(p)) || ''; key.placeholder = `${P.name} API 키 (${P.keyHint})`;
+    const p = prov.value, P = PROVIDERS[p], srv = p === 'server';
+    model.value = srv ? '' : (localStorage.getItem(LS.model(p)) || P.defaultModel); model.placeholder = P.defaultModel;
+    key.value = localStorage.getItem(LS.key(p)) || '';
+    key.placeholder = srv ? '비밀번호' : `${P.name} API 키 (${P.keyHint})`;
     dl.innerHTML = P.models.map(m => `<option value="${m}">`).join('');
-    $('aiKeyLink').href = P.keyUrl; $('aiKeyLink').textContent = `${P.name} 키 발급 페이지`;
-    $('aiKeyState').textContent = key.value ? '키 저장됨 (이 브라우저)' : '키 없음';
+    $('aiModelRow').hidden = srv; $('aiKeyLink').hidden = srv;
+    if (!srv) { $('aiKeyLink').href = P.keyUrl; $('aiKeyLink').textContent = `${P.name} 키 발급 페이지`; }
+    $('aiClearKey').textContent = srv ? '비밀번호 지우기' : '키 지우기';
+    $('aiNoteKey').hidden = srv; $('aiNoteServer').hidden = !srv;
+    $('aiKeyState').textContent = key.value ? (srv ? '비밀번호 저장됨 (이 브라우저)' : '키 저장됨 (이 브라우저)') : (srv ? '비밀번호 없음' : '키 없음');
   };
-  prov.value = PROVIDERS[localStorage.getItem(LS.provider)] ? localStorage.getItem(LS.provider) : 'xai'; load();
+  prov.value = PROVIDERS[localStorage.getItem(LS.provider)] ? localStorage.getItem(LS.provider) : (WORKER_URL ? 'server' : 'xai'); load();
   prov.onchange = () => { localStorage.setItem(LS.provider, prov.value); load(); };
   model.onchange = () => { const m = model.value.trim(); m ? localStorage.setItem(LS.model(prov.value), m) : localStorage.removeItem(LS.model(prov.value)); if (!m) load(); };
   key.onchange = () => { const k = key.value.trim(); k ? localStorage.setItem(LS.key(prov.value), k) : localStorage.removeItem(LS.key(prov.value)); load(); };
-  $('aiClearKey').onclick = () => { Object.keys(PROVIDERS).forEach(p => localStorage.removeItem(LS.key(p))); load(); setAi('저장된 키를 모두 지웠어요.', 'ok'); };
+  $('aiClearKey').onclick = () => {
+    if (prov.value === 'server') { localStorage.removeItem(LS.key('server')); load(); setAi('저장된 비밀번호를 지웠어요.', 'ok'); return; }
+    Object.keys(PROVIDERS).filter(p => p !== 'server').forEach(p => localStorage.removeItem(LS.key(p))); load(); setAi('저장된 API 키를 모두 지웠어요.', 'ok'); };
   $('aiReset').onclick = () => { localStorage.removeItem(LS.model(prov.value)); load(); };
 
   let busy = false, ctrl = null;
@@ -246,7 +267,7 @@ function init() {
     if (busy) { ctrl?.abort(); return; }
     const text = $('aiText').value.trim(); if (!text) { setAi('어떤 자세인지 적어 주세요.', 'err'); return; }
     const p = prov.value, k = localStorage.getItem(LS.key(p)) || key.value.trim();
-    if (!k) { $('aiSettings').open = true; setAi(`먼저 설정에서 ${PROVIDERS[p].name} API 키를 넣어 주세요.`, 'err'); key.focus(); return; }
+    if (!k) { $('aiSettings').open = true; setAi(p === 'server' ? '먼저 설정에 비밀번호를 넣어 주세요.' : `먼저 설정에서 ${PROVIDERS[p].name} API 키를 넣어 주세요.`, 'err'); key.focus(); return; }
     const m = model.value.trim() || PROVIDERS[p].defaultModel;
     const current = $('aiEdit').checked && state.people.length ? currentPoseForPrompt() : null;
     busy = true; ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 120000);
@@ -261,6 +282,7 @@ function init() {
       const hist = $('aiHistory'); const li = document.createElement('li'); li.textContent = (current ? '✏️ ' : '🆕 ') + text; hist.prepend(li);
     } catch (e) {
       console.error(e);
+      if (e instanceof ApiError && e.kind === 'password') { $('aiSettings').open = true; key.select(); }
       setAi(e instanceof ApiError ? e.message : (e.name === 'AbortError' ? '멈췄어요.' : '포즈를 만들지 못했어요. 다시 해 주세요.'), 'err');
     } finally { clearTimeout(timer); busy = false; $('aiGo').textContent = '만들기'; }
   };

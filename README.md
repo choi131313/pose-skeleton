@@ -22,6 +22,9 @@
 ## 파일 구성
 ```
 index.html  style.css  app.js        웹페이지
+config.js   WORKER_URL (포즈 서버 주소, 비어 있으면 서버 방식 숨김)
+pose-prompt.js  AI 프롬프트·JSON 스키마 (페이지와 서버가 같이 씀)
+worker/     Cloudflare Worker ‘포즈 서버’ (비밀번호로 보호되는 xAI 프록시)
 ai.js       말로 포즈 만들기 (xAI / OpenAI / Gemini 직접 호출, 응답 검증·보정)
 vendor/      three.js r170, OrbitControls, @mediapipe/tasks-vision 0.10.21 (wasm 포함)
 models/      pose_landmarker_full.task, pose_landmarker_heavy.task
@@ -104,6 +107,66 @@ examples/    standing.json, right_arm_up_twist_left.json
 - 오류 안내: 키 오류(401, xAI ‘Incorrect API key’, API_KEY_INVALID), 크레딧 소진(xAI 403 credits/spending limit), 결제·한도 부족(insufficient_quota), 요청 과다·무료 한도(429), 모델 이름 오류(404),
   서버 오류(5xx), 인터넷 끊김, 거절/안전 차단, 2분 시간 초과.
 - 요금: 요청 1번에 입력 약 2~3천, 출력 약 1~2천 토큰(추론 토큰 별도)이라 grok-4.7(입력 $2/출력 $6 per 1M, 2026-11 기준 docs.x.ai) 기준 한 번에 대략 1~2센트(약 20~30원)예요. 키 주인 계정에 청구돼요.
+
+## 키 없이 쓰기: ‘내 서버 (비밀번호)’ — Cloudflare Worker
+
+Grok 키를 작은 Cloudflare Worker(`worker/`) 안에 숨겨 두고, 페이지에서는 **비밀번호만** 넣어 쓰는 방식이에요.
+`config.js`의 `WORKER_URL`이 비어 있으면 이 방식은 안 보이고, 주소를 넣으면 기본 방식이 돼요.
+
+**서버가 막아 주는 것**
+- `https://choi131313.github.io`에서 온 요청만 받아요(CORS + Origin 확인). 진짜 보호는 비밀번호예요(Origin은 브라우저 밖에선 흉내 낼 수 있어서).
+- 비밀번호(`PAGE_PASSWORD`)는 상수 시간 비교, 틀리면 약 1초 지연, 같은 IP에서 5번 틀리면 15분 잠금.
+- 시스템 프롬프트와 포즈 JSON 스키마를 **서버가 고정**해서 붙여요 → 일반 Grok 채팅으로는 못 써요.
+  클라이언트가 보낸 system 메시지·tools·max_tokens 등은 거절하거나 무시해요.
+- 모델 허용 목록(`ALLOWED_MODELS`), 출력 상한 `MAX_TOKENS`(6000), 입력 상한 `MAX_INPUT_CHARS`(12000자), 메시지 4개 이하, 본문 64KB 이하.
+- 하루 요청 상한 `DAILY_LIMIT`(기본 200번, 한국 시간 자정에 초기화, 0이면 무제한). grok-4.7 기준 하루 최대 대략 2~4달러 이내로 묶여요(추정).
+- 키·비밀번호·요청 내용은 로그에 남기지 않아요.
+- 잠금·하루 상한은 KV에 저장해요(KV를 안 붙이면 서버 인스턴스별 메모리라 느슨해요). KV는 몇 초 늦게 반영될 수 있어서 상한을 몇 번 넘길 수는 있어요.
+
+**배포 순서** (한 번만 하면 돼요. 비밀값은 본인이 직접 입력하고 채팅에 붙여넣지 마세요)
+1. Cloudflare 무료 가입: https://dash.cloudflare.com/sign-up
+2. xAI 콘솔(https://console.x.ai)에서 크레딧을 충전하고 API 키를 만들어요.
+3. Node.js가 있는 컴퓨터에서:
+   ```bash
+   git clone https://github.com/choi131313/pose-skeleton.git
+   cd pose-skeleton/worker
+   npm install
+   npx wrangler login            # 브라우저가 열리면 Cloudflare 로그인 → 허용
+   ```
+4. 잠금·하루 상한용 KV 만들기:
+   ```bash
+   npx wrangler kv namespace create POSE_KV
+   ```
+   나온 `id`를 `wrangler.toml`의 `[[kv_namespaces]]` 부분에 넣고 그 세 줄 앞의 `#`을 지워요.
+5. 비밀값 넣기 (명령을 치면 입력창이 나와요. 화면에 안 보여도 붙여넣고 Enter):
+   ```bash
+   npx wrangler secret put XAI_API_KEY     # xAI 키 (xai-...)
+   npx wrangler secret put PAGE_PASSWORD   # 페이지에서 쓸 비밀번호 (길게, 다른 데서 안 쓰는 것)
+   ```
+6. (선택) `wrangler.toml`에서 `DAILY_LIMIT` 같은 값을 바꿔요.
+7. 배포:
+   ```bash
+   npx wrangler deploy
+   ```
+   처음이면 workers.dev 하위 주소 이름을 정하라고 나와요. 끝나면 `https://pose-proxy.<이름>.workers.dev` 주소가 나와요.
+8. 확인: `curl -H "Origin: https://choi131313.github.io" https://pose-proxy.<이름>.workers.dev/health` → `{"ok":true,"configured":true}`
+9. 저장소의 `config.js`에 `export const WORKER_URL = 'https://pose-proxy.<이름>.workers.dev';` 를 넣고 커밋·푸시해요.
+10. 페이지 → AI 설정 → ‘내 서버 (비밀번호)’에 비밀번호를 한 번 넣으면 끝이에요.
+
+비밀번호 바꾸기: `npx wrangler secret put PAGE_PASSWORD` 다시 실행. 잠시 끄기: `DAILY_LIMIT`을 아주 작게 하고 `npx wrangler deploy`, 완전히 지우기: `npx wrangler delete`.
+
+**로컬 테스트** (실제 xAI 대신 가짜 서버):
+```bash
+cd worker && npm install
+node test/mock-xai.mjs &                       # 가짜 xAI (9999)
+printf 'XAI_API_KEY=test\nPAGE_PASSWORD=correct-horse-battery\nXAI_URL=http://127.0.0.1:9999/v1/chat/completions\nDAILY_LIMIT=6\nMAX_FAILS=3\n' > .dev.vars
+npx wrangler dev -c wrangler.test.toml --port 8787 &   # KV 포함 (기본 wrangler.toml로 하면 메모리 모드)
+node test/worker.test.mjs                      # 29개 항목
+```
+
+**서버 API** — `POST /v1/pose` `{"password": "...", "messages": [{"role":"user","content":"..."}], "model"?: "grok-4.7"}`
+→ `200 {"content": "<포즈 JSON 문자열>", "used_today": n, "daily_limit": n}` / 오류 `{"error": "bad_password|locked|daily_limit|no_credits|upstream_auth|upstream_rate|upstream_down|upstream_error|too_large|bad_request|model_not_allowed|bad_origin|not_configured"}`.
+`GET /health` → `{"ok":true,"configured":true}`.
 
 ## 명령줄 렌더러 `render_pose.py`
 ```bash

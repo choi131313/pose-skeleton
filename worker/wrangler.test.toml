@@ -1,0 +1,14 @@
+# 로컬 테스트 전용 (KV 시뮬레이션 포함)
+name = "pose-proxy-test"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+[vars]
+ALLOWED_ORIGIN = "https://choi131313.github.io"
+ALLOWED_MODELS = "grok-4.7,grok-4.3,grok-4.20-0309-non-reasoning"
+DEFAULT_MODEL = "grok-4.7"
+MAX_TOKENS = "6000"
+MAX_INPUT_CHARS = "12000"
+LOCK_SECONDS = "900"
+[[kv_namespaces]]
+binding = "POSE_KV"
+id = "local-test"

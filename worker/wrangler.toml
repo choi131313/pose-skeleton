@@ -1,0 +1,22 @@
+name = "pose-proxy"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+[vars]
+ALLOWED_ORIGIN = "https://choi131313.github.io"
+ALLOWED_MODELS = "grok-4.7,grok-4.3,grok-4.20-0309-non-reasoning"
+DEFAULT_MODEL = "grok-4.7"
+MAX_TOKENS = "6000"
+MAX_INPUT_CHARS = "12000"
+DAILY_LIMIT = "200"
+MAX_FAILS = "5"
+LOCK_SECONDS = "900"
+
+# 비밀번호 잠금·하루 상한을 정확하게 지키려면 KV를 연결하세요 (README 참고).
+# `npx wrangler kv namespace create POSE_KV` 로 나온 id를 아래에 넣고 주석(#)을 지우세요.
+# [[kv_namespaces]]
+# binding = "POSE_KV"
+# id = "여기에_KV_id"
+
+# 비밀값(절대 이 파일에 쓰지 마세요):  npx wrangler secret put XAI_API_KEY  /  npx wrangler secret put PAGE_PASSWORD
