@@ -1,6 +1,8 @@
 // 포즈 뼈대 만들기 — 사진 → (기기 안) MediaPipe PoseLandmarker → 3D OpenPose 18점 뼈대
 import * as THREE from 'three';
 import { OrbitControls } from './vendor/OrbitControls.js';
+import { analyzePose } from './detect.js';
+import * as rtmMod from './rtm.js';
 
 // ---------- OpenPose (COCO 18) 정의 ----------
 export const NAMES = ['nose','neck','r_shoulder','r_elbow','r_wrist','l_shoulder','l_elbow','l_wrist',
@@ -540,13 +542,14 @@ $('importFile').onchange = async (e) => {
 // ---------- 사진 → 포즈 ----------
 const MODEL_URL = { full: 'models/pose_landmarker_full.task', heavy: 'models/pose_landmarker_heavy.task' };
 let visionMod = null, fileset = null;
+const DETECT_OPTS = { minPoseDetectionConfidence: 0.4, minPosePresenceConfidence: 0.4, minTrackingConfidence: 0.4 };
 async function getLandmarker(kind) {
   if (state.landmarker[kind]) return state.landmarker[kind];
   visionMod ??= await import('./vendor/mediapipe/vision_bundle.mjs');
   fileset ??= await visionMod.FilesetResolver.forVisionTasks(new URL('vendor/mediapipe/wasm', location.href).href);
   const make = (delegate) => visionMod.PoseLandmarker.createFromOptions(fileset, {
     baseOptions: { modelAssetPath: new URL(MODEL_URL[kind], location.href).href, delegate },
-    runningMode: 'IMAGE', numPoses: 5, minPoseDetectionConfidence: 0.4, minPosePresenceConfidence: 0.4,
+    runningMode: 'IMAGE', numPoses: 2, ...DETECT_OPTS,
   });
   let lm;
   try { lm = await make('GPU'); lm._delegate = 'GPU'; } catch (e) { console.warn('GPU 실패 → CPU', e); lm = await make('CPU'); lm._delegate = 'CPU'; }
@@ -564,10 +567,6 @@ async function loadImageFile(file) {
   } finally { URL.revokeObjectURL(url); }
 }
 
-function mpTo18(arr, conv) {
-  return MP.map(i => i >= 0 ? conv(arr[i]) : conv({ x: (arr[11].x+arr[12].x)/2, y: (arr[11].y+arr[12].y)/2, z: (arr[11].z+arr[12].z)/2,
-    visibility: Math.min(arr[11].visibility ?? 1, arr[12].visibility ?? 1) }));
-}
 
 async function handleFile(file) {
   if (!file || state.busy) return;
@@ -585,16 +584,27 @@ async function handleFile(file) {
     showLoading(true, state.landmarker[kind] ? '자세 분석 중…' : '분석 도구 준비 중… (처음 한 번만 몇 초 걸려요)');
     const lm = await getLandmarker(kind);
     showLoading(true, '자세 분석 중…');
-    await lm.setOptions({ numPoses: +$('numPoses').value });
+    const maxPeople = +$('numPoses').value, thorough = $('thorough').checked;
+    let rtm = null;
+    if (thorough) {
+      const rk = kind === 'heavy' ? 'm' : 's';
+      try {
+        if (!rtmMod.rtmReady(rk)) showLoading(true, `꼼꼼 분석 도구 준비 중… (처음 한 번만 약 ${rk === 'm' ? 75 : 42}MB 받아요)`);
+        await rtmMod.loadRtm(rk); rtmMod.usePose(rk); rtm = rtmMod;
+      } catch (e) { console.warn('RTMPose 준비 실패 → MediaPipe만 사용', e); }
+      showLoading(true, '자세 분석 중… (여러 번 확인하는 중)');
+    }
+    await lm.setOptions({ numPoses: Math.max(2, maxPeople) });
     let res;
-    try { res = lm.detect(img); }
+    try { res = await analyzePose(lm, img, { maxPeople, thorough, rtm }); }
     catch (e) {
       if (lm._delegate !== 'GPU') throw e;
       console.warn('GPU 분석 실패 → CPU', e); state.landmarker[kind] = null;
       visionMod ??= await import('./vendor/mediapipe/vision_bundle.mjs');
-      const cpu = await visionMod.PoseLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: new URL(MODEL_URL[kind], location.href).href, delegate: 'CPU' }, runningMode: 'IMAGE', numPoses: +$('numPoses').value });
-      cpu._delegate = 'CPU'; state.landmarker[kind] = cpu; res = cpu.detect(img);
+      const cpu = await visionMod.PoseLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: new URL(MODEL_URL[kind], location.href).href, delegate: 'CPU' }, runningMode: 'IMAGE', numPoses: Math.max(2, maxPeople), ...DETECT_OPTS });
+      cpu._delegate = 'CPU'; state.landmarker[kind] = cpu; res = await analyzePose(cpu, img, { maxPeople, thorough, rtm });
     }
+    state.lastAnalysis = { passes: res.passes, ms: Math.round(res.ms), mode: res.mode, rtmMs: res.rtmMs };
     applyResult(res, img);
   } catch (e) {
     console.error(e); setStatus(e.message || String(e), 'err');
@@ -602,28 +612,32 @@ async function handleFile(file) {
 }
 
 function applyResult(res, img) {
-  const n = res.worldLandmarks?.length || 0;
-  if (!n) { drawPhoto(); setStatus('사람을 찾지 못했어요. 몸 전체가 잘 보이는 사진으로 다시 해 보세요.', 'err'); return; }
+  const people = res.people, n = people.length;
+  if (!n) {
+    state.people.forEach(p => p.img2d = null); drawPhoto();
+    setStatus('사람을 찾지 못했어요. 몸 전체가 잘 보이는 사진으로 다시 해 보세요.', 'err'); return;
+  }
   const W = img.width, H = img.height, ar = W / H;
   // 사람마다 엉덩이 중심 기준 좌표라서, 사진 속 위치로 옆으로 배치
-  const info = res.worldLandmarks.map((wl, i) => {
-    const il = res.landmarks[i];
-    const mid = (a, b, o) => ({ x: (o[a].x+o[b].x)/2, y: (o[a].y+o[b].y)/2, z: (o[a].z+o[b].z)/2 });
-    const ws = mid(11,12,wl), wh = mid(23,24,wl), is = mid(11,12,il), ih = mid(23,24,il);
-    const wlen = Math.hypot(ws.x-wh.x, ws.y-wh.y, ws.z-wh.z), ilen = Math.hypot((is.x-ih.x)*ar, is.y-ih.y);
-    return { s: ilen > 1e-4 ? wlen/ilen : 1, hip: ih };
+  const mid = (o, a, b) => [(o[a][0]+o[b][0])/2, (o[a][1]+o[b][1])/2, (o[a][2]+o[b][2])/2];
+  const info = people.map(P => {
+    const ws = mid(P.world,2,5), wh = mid(P.world,8,11), is = mid(P.img2d,2,5), ih = mid(P.img2d,8,11);
+    const wlen = Math.hypot(ws[0]-wh[0], ws[1]-wh[1], ws[2]-wh[2]), ilen = Math.hypot((is[0]-ih[0])*ar, is[1]-ih[1]);
+    return { s: ilen > 1e-4 ? wlen/ilen : 1, hip: { x: ih[0], y: ih[1] } };
   });
   const ss = info.map(o => o.s).sort((a,b) => a-b), s = ss[Math.floor(ss.length/2)];
   clearPeople();
-  res.worldLandmarks.forEach((wl, i) => {
+  let unsure = 0;
+  people.forEach((P, i) => {
     const off = n > 1 ? new THREE.Vector3((info[i].hip.x-0.5)*ar*s, -(info[i].hip.y-0.5)*s, 0) : new THREE.Vector3();
-    const pts = mpTo18(wl, l => new THREE.Vector3(l.x, -l.y, -l.z).add(off));
-    const vis = mpTo18(wl, l => l.visibility ?? 1).map(v => Math.max(0.01, v));
-    const img2d = mpTo18(res.landmarks[i], l => [l.x, l.y, l.visibility ?? 1]);
-    addPerson(pts, vis, img2d);
+    const pts = P.world.map(w => new THREE.Vector3(w[0], -w[1], -w[2]).add(off));
+    const vis = P.conf.map(v => Math.max(0.01, v));
+    const p = addPerson(pts, vis, P.img2d.map(q => q.slice())); p.flags = P.unsure.slice();
+    unsure += p.flags.filter((f, j) => f && !FACE.has(j)).length;
   });
   renderPeopleChips(); drawPhoto(); setView(0, 0);
-  setStatus(`${n}명을 찾았어요. 3D 뼈대를 돌려 보고 원하는 각도에서 저장하세요.`, 'ok');
+  setStatus(`${n}명을 찾았어요. 3D 뼈대를 돌려 보고 원하는 각도에서 저장하세요.` +
+    (unsure ? ` 확실하지 않은 관절 ${unsure}개는 사진 위에 빨간 동그라미로 표시했어요. 틀렸으면 3D에서 끌어서 고쳐 주세요.` : ''), 'ok');
 }
 
 function drawPhoto() {
@@ -634,6 +648,13 @@ function drawPhoto() {
   const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0, c.width, c.height);
   const people = state.people.filter(p => p.img2d).map(p => p.img2d.map((q, j) => isOn(p, j) ? [q[0]*c.width, q[1]*c.height] : null));
   ctx.globalAlpha = 0.9; drawOpenPose(ctx, c.width, c.height, people, 0.8, false); ctx.globalAlpha = 1;
+  // 확실하지 않은 관절: 빨간 동그라미
+  const r = Math.max(c.width, c.height) / 512 * 9;
+  ctx.lineWidth = Math.max(2, r / 3.5); ctx.strokeStyle = '#ff2d2d';
+  state.people.filter(p => p.img2d && p.flags).forEach(p => p.flags.forEach((f, j) => {
+    if (!f || FACE.has(j) || !isOn(p, j)) return; const q = p.img2d[j];
+    ctx.beginPath(); ctx.arc(q[0]*c.width, q[1]*c.height, r, 0, Math.PI*2); ctx.stroke();
+  }));
 }
 
 function renderPeopleChips() {

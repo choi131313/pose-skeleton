@@ -5,11 +5,16 @@
 [posex](https://hnmr293.github.io/posex/)에서 영감을 받았어요. 그림 자세 참고·AI 이미지 생성(ControlNet openpose)용.
 
 - 공개 주소: https://choi131313.github.io/pose-skeleton/
-- 사진은 서버로 올라가지 않아요. 분석(MediaPipe Pose Landmarker)은 전부 브라우저 안에서 돌아가요.
+- 사진은 서버로 올라가지 않아요. 분석(MediaPipe Pose Landmarker + RTMPose)은 전부 브라우저 안에서 돌아가요.
 
 ## 기능
 - 사진 고르기 / 끌어다 놓기 / 붙여넣기 (휴대폰 브라우저도 가능), 최대 5명
-- 정밀도: 보통(full 모델, 9MB) / 정밀(heavy 모델, 30MB)
+- 정밀도: 보통(MediaPipe full 9MB + RTMPose-s 22MB) / 정밀(MediaPipe heavy 30MB + RTMPose-m 54MB). 사람 찾기 YOLOX-tiny 20MB와 ONNX 실행기 15MB는 공통(처음 한 번만 받음)
+- **꼼꼼히 분석**(기본 켜짐): ① YOLOX(HumanArt)로 사람 상자 찾기 → ② RTMPose(body7)로 2D 관절, 좌우 뒤집어 한 번 더, 거꾸로·누운 사람은 돌려서 다시
+  → ③ MediaPipe를 사람 크게 잘라·뒤집어·돌려 여러 번 돌려서 2D가 가장 잘 맞는 결과를 골라 **앞뒤 깊이**에 씀
+  → ④ 화면 위치는 2D를 따르고 깊이는 뼈 길이(좌우 평균)를 지키도록 맞춰 3D 뼈대 만들기.
+  두 모델·두 방향 결과가 어긋나는 관절은 사진 위에 **빨간 동그라미**(확실하지 않음)로 표시. 끄면 예전처럼 MediaPipe 한 번만.
+  RTMPose를 못 불러오면 MediaPipe 여러 번 분석(사람 확대·뒤집기·돌리기·밝기 보정, 서로 가장 잘 맞는 결과)으로 대신해요.
 - 3D 보기(three.js): 회전·확대·이동(마우스·터치), 정면/오른쪽에서/뒤에서/왼쪽에서/위에서 버튼, 시점 초기화
 - 관절(점)을 끌어서 자세 고치기, 포즈 되돌리기
 - 사진 위에 2D 뼈대 겹쳐 보기
@@ -33,14 +38,16 @@
 ## 파일 구성
 ```
 index.html  style.css  app.js        웹페이지
+detect.js   꼼꼼히 분석 (여러 번 분석·비교·2D+깊이 합치기)
+rtm.js      YOLOX·RTMPose 실행 (onnxruntime-web WASM, rtmlib와 같은 전처리)
 config.js   WORKER_URL (포즈 서버 주소, 비어 있으면 서버 방식 숨김)
 pose-prompt.js  AI 프롬프트·JSON 스키마 (페이지와 서버가 같이 씀)
 worker/     Cloudflare Worker ‘포즈 서버’ (비밀번호로 보호되는 xAI 프록시)
 ai.js       말로 포즈 만들기 (xAI / OpenAI / Gemini 직접 호출, 응답 검증·보정, 토큰 사용량)
 library.js  보관함 (IndexedDB)
 queue.js    대기열 (차례로 만들기)
-vendor/      three.js r170, OrbitControls, @mediapipe/tasks-vision 0.10.21 (wasm 포함)
-models/      pose_landmarker_full.task, pose_landmarker_heavy.task
+vendor/      three.js r170, OrbitControls, @mediapipe/tasks-vision 0.10.21 (wasm 포함), onnxruntime-web 1.31.1 (wasm)
+models/      pose_landmarker_full.task, pose_landmarker_heavy.task, person_yolox_tiny.onnx, rtmpose_s.onnx, rtmpose_m.onnx (RTM_MODELS.txt 참고)
 render_pose.py  포즈 JSON → OpenPose PNG 명령줄 렌더러 (Python3 + Pillow)
 examples/    standing.json, right_arm_up_twist_left.json
 ```
@@ -201,10 +208,12 @@ python3 render_pose.py pose.json -o outdir/ --angles all --sheet --json-out
 - 사진 한 장에서 깊이(앞뒤)를 추정하는 거라 옆·뒤 각도는 실제와 다를 수 있어요.
 - 가려진 팔다리, 잘린 부분, 몸 뒤로 간 손은 틀릴 수 있어요 → 관절을 끌어서 고치기.
 - 손가락·얼굴 표정 키포인트는 없어요(몸 18점만).
-- 작게 나온 사람이 많은 단체 사진은 잘 못 찾아요(정밀 모드가 조금 나음).
+- 작게 나온 사람이 많은 단체 사진은 잘 못 찾아요. 꼼꼼히 분석은 주인공보다 아주 작거나(12% 미만) 흐릿한 사람은 빼요.
+- 2026-11-25 어려운 사진 36장 테스트(앉기·웅크리기·눕기·뒷모습·가림·춤·운동·작은 사람·어두운 사진): 기준 RTMPose-x 대비 맞은 관절 비율(PCK@0.1)
+  보통 78%→93%, 정밀 84%→96% / 눈으로 본 판정 좋음 16→26장, 나쁨 7→0장. 아직 약한 것: 다리 꼰 앉은 자세, 흐릿한 동작, 몸이 많이 가려진 사진.
 - 여러 명일 때 사람 간 앞뒤 거리는 맞추지 않고 사진 속 가로·세로 위치로만 배치해요.
 - 그림·애니 캐릭터는 인식이 안 되거나 부정확할 수 있어요.
 - 말로 만든 포즈는 AI가 좌표를 상상해서 만든 거라 좌우·각도가 틀릴 수 있어요. 돌려 보고 관절을 끌어 고치세요.
 
 ## 라이선스
-three.js (MIT), MediaPipe Tasks Vision 및 모델 (Apache-2.0).
+three.js (MIT), MediaPipe Tasks Vision 및 모델 (Apache-2.0), onnxruntime-web (MIT), RTMPose·YOLOX 모델 (OpenMMLab, Apache-2.0).
